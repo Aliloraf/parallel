@@ -276,11 +276,13 @@ explore(defineScenario({
   name: 'cjs', createState: () => ({}),
   actors: [{ id: 'a', async run({ checkpoint }) { await checkpoint('a'); } }, { id: 'b', async run({ checkpoint }) { await checkpoint('b'); } }],
   invariants: [{ name: 'ok', check: () => true }],
-})).then((summary) => console.log(summary.schedulesExplored));
+})).then((summary) => console.log(JSON.stringify({ schedulesExplored: summary.schedulesExplored, complete: summary.complete })));
 `);
+  // Print a string: console.log() colors non-string values when FORCE_COLOR is
+  // set, which `node --test` does for its subprocesses when run in a terminal.
   const result = node(['program.cjs']);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), '2');
+  assert.deepEqual(JSON.parse(result.stdout), { schedulesExplored: 2, complete: true });
 });
 
 test('internal modules are not reachable through package subpaths', () => {
