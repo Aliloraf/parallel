@@ -39,6 +39,27 @@ For JSON output:
 node --experimental-strip-types packages/cli/src/cli.ts test inventory-fixed --json
 ```
 
+## Run your own scenario (experimental)
+
+You can now provide a trusted local TypeScript file to the CLI. The file should
+export a scenario created with `defineScenario()` as its default export (a
+named `scenario` export is also accepted).
+
+For example, see `examples/counter/src/scenario.ts`:
+
+```bash
+node --experimental-strip-types packages/cli/src/cli.ts test ./examples/counter/src/scenario.ts
+node --experimental-strip-types packages/cli/src/cli.ts test ./examples/counter/src/scenario.ts --trace-out traces/counter.json
+node --experimental-strip-types packages/cli/src/cli.ts replay traces/counter.json ./examples/counter/src/scenario.ts
+```
+
+The last command intentionally exits with code 1 when replaying a known failure.
+Importing a scenario **executes its code**, so only use files you trust. The CLI
+currently runs from the repository checkout and does not isolate or sandbox
+custom scenarios. External network, timers, randomness, or unmanaged awaits are
+not controlled by the scheduler. For a custom scenario, provide its file path
+again when replaying a trace.
+
 ## How the prototype works
 
 1. A scenario declares a `createState` factory, actor functions and invariants.
@@ -64,7 +85,7 @@ docs/02-requirements.md  Draft SRS, target requirements for v0.1
 
 ## Next steps
 
-- Extend the CLI to load developer-supplied scenario files.
+- Package the CLI and SDK for installation outside this repository.
 - Define a robust cancellation/timeout contract for unmanaged asynchronous work.
 - Cover additional error cases, divergence, and trace compatibility.
 - Add package boundaries, linting, and usage-focused SDK documentation.
