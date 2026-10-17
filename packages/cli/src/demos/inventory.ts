@@ -1,5 +1,5 @@
-import { defineScenario } from '../../../packages/sdk/src/index.ts';
-import type { Scenario } from '../../../packages/sdk/src/index.ts';
+import { defineScenario } from '@aliloraf/parallel-sdk';
+import type { Scenario } from '@aliloraf/parallel-sdk';
 
 type InventoryState = { stock: number; successfulPurchases: number };
 

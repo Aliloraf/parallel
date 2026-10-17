@@ -1,0 +1,2 @@
+# Normalize line endings so builds and packed tarballs are identical on every platform.
+* text=auto eol=lf

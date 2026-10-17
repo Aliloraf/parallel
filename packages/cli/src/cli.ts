@@ -2,14 +2,22 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ExecutionError, explore, replay, validateTrace } from '../../engine/src/index.ts';
-import type { Decision, Trace } from '../../engine/src/index.ts';
-import { inventoryScenario } from '../../../examples/inventory/src/scenarios.ts';
-import { defineScenario } from '../../sdk/src/index.ts';
-import type { Scenario } from '../../sdk/src/index.ts';
+import { ExecutionError, explore, replay, validateTrace } from '@aliloraf/parallel-engine';
+import type { Decision, Trace } from '@aliloraf/parallel-engine';
+import { defineScenario } from '@aliloraf/parallel-sdk';
+import type { Scenario } from '@aliloraf/parallel-sdk';
+import { inventoryScenario } from './demos/inventory.ts';
 
 const args = process.argv.slice(2);
-const usage = 'Usage: node --experimental-strip-types packages/cli/src/cli.ts test <scenario-file.ts|inventory-buggy|inventory-fixed> [--json] [--max-schedules N] [--step-timeout MS] [--trace-out path] | replay <trace-file> [scenario-file.ts|inventory-buggy|inventory-fixed] [--step-timeout MS]';
+const usage = `Usage:
+  parallel-sim test <scenario> [--json] [--max-schedules N] [--step-timeout MS] [--trace-out PATH]
+  parallel-sim replay <trace> [scenario] [--step-timeout MS]
+  parallel-sim --help | --version
+
+<scenario> is a path to a .ts, .mts, .js or .mjs module that exports a scenario
+(as its default export or as 'scenario'), or a built-in demo: inventory-buggy,
+inventory-fixed. Scenario modules are executed as trusted code.`;
+const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 function flagValue(key: string): string | undefined {
   const i = args.indexOf(key);
   return i >= 0 ? args[i + 1] : undefined;
@@ -34,6 +42,25 @@ async function terminateAbandonedWork(): Promise<void> {
   await Promise.all([process.stdout, process.stderr].map((stream) => new Promise<void>((done) => stream.write('', () => done()))));
   process.exit();
 }
+/** Turns Node.js module-loading failures for TypeScript scenarios into actionable errors. */
+function explainImportFailure(cause: unknown, path: string): unknown {
+  const code = typeof cause === 'object' && cause !== null ? (cause as { code?: unknown }).code : undefined;
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  if (code === 'ERR_UNKNOWN_FILE_EXTENSION' && /\.m?ts$/.test(path)) {
+    return new Error(`Cannot load TypeScript scenario ${path}: Node.js type stripping is not available in this process. `
+      + 'Use Node.js >=22.18.0 without --no-experimental-strip-types, write the scenario as .js/.mjs, '
+      + 'or register a TypeScript loader (for example NODE_OPTIONS=--import=<loader>).', { cause });
+  }
+  if (code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') {
+    return new Error(`Cannot load scenario ${path}: it, or a module it imports, uses TypeScript syntax that cannot be stripped `
+      + `(such as enum, namespace or constructor parameter properties). ${detail} `
+      + 'Use erasable syntax only, or register a TypeScript loader.', { cause });
+  }
+  if (code === 'ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING') {
+    return new Error(`Cannot load scenario ${path}: it imports TypeScript source from node_modules, which Node.js does not strip. ${detail}`, { cause });
+  }
+  return cause;
+}
 /**
  * Load a built-in example or a trusted local scenario module.
  * The runtime checks provide a readable error before handing the typed scenario
@@ -42,12 +69,17 @@ async function terminateAbandonedWork(): Promise<void> {
 async function loadScenario(input: string): Promise<Scenario<any>> {
   if (input === 'inventory-buggy') return inventoryScenario(false);
   if (input === 'inventory-fixed') return inventoryScenario(true);
-  if (!/\.(?:ts|js|mjs)$/.test(input)) {
-    throw new Error(`Unknown scenario '${input}'. Provide inventory-buggy, inventory-fixed, or a path to a .ts/.js/.mjs scenario file.`);
+  if (!/\.(?:ts|mts|js|mjs)$/.test(input)) {
+    throw new Error(`Unknown scenario '${input}'. Provide inventory-buggy, inventory-fixed, or a path to a .ts/.mts/.js/.mjs scenario file.`);
   }
   const fullPath = resolve(input);
   if (!existsSync(fullPath)) throw new Error(`Scenario file not found: ${fullPath}`);
-  const module = await import(pathToFileURL(fullPath).href);
+  let module: { default?: unknown; scenario?: unknown };
+  try {
+    module = await import(pathToFileURL(fullPath).href);
+  } catch (cause) {
+    throw explainImportFailure(cause, fullPath);
+  }
   const candidate: unknown = module.default ?? module.scenario;
   if (candidate === null || typeof candidate !== 'object') {
     throw new Error(`Scenario file must export a Scenario as default (or named 'scenario'): ${fullPath}`);
@@ -65,7 +97,11 @@ async function loadScenario(input: string): Promise<Scenario<any>> {
 let abandonedWork = false;
 try {
   const command = args[0];
-  if (command === 'test') {
+  if (command === '--help' || command === '-h' || command === 'help') {
+    console.log(usage);
+  } else if (command === '--version' || command === '-v') {
+    console.log(version);
+  } else if (command === 'test') {
     const name = args[1];
     if (!name) throw new Error(usage);
     const scenario = await loadScenario(name);

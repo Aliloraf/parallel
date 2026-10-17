@@ -1,0 +1,47 @@
+{
+  "name": "@aliloraf/parallel-cli",
+  "version": "0.1.0",
+  "description": "parallel-sim: command-line runner for Parallel concurrency scenarios",
+  "license": "Apache-2.0",
+  "author": "Alae Raftani",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aliloraf/parallel.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/Aliloraf/parallel#readme",
+  "bugs": {
+    "url": "https://github.com/Aliloraf/parallel/issues"
+  },
+  "keywords": [
+    "concurrency",
+    "race-condition",
+    "testing",
+    "deterministic",
+    "simulation",
+    "schedule-exploration",
+    "typescript"
+  ],
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "parallel-sim": "./dist/cli.js"
+  },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@aliloraf/parallel-engine": "0.1.0"
+  },
+  "peerDependencies": {
+    "@aliloraf/parallel-sdk": "^0.1.0"
+  }
+}

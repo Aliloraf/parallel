@@ -1,4 +1,4 @@
-import { defineScenario } from '../../packages/sdk/src/index.ts';
+import { defineScenario } from '@aliloraf/parallel-sdk';
 
 // Scenarios used to generate the fixed traces in ./traces. Changing them breaks the fixtures.
 const passing = [{ name: 'ok', check: () => true }];

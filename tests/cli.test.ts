@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const cli = fileURLToPath(new URL('../packages/cli/src/cli.ts', import.meta.url));
+// The built CLI, exactly as the package's `parallel-sim` bin runs it.
+const cli = fileURLToPath(new URL('../packages/cli/dist/cli.js', import.meta.url));
 const example = fileURLToPath(new URL('../examples/counter/src/scenario.ts', import.meta.url));
-const nodeArgs = ['--disable-warning=ExperimentalWarning', '--experimental-strip-types', cli];
+// Type stripping is on by default in supported Node.js versions; only silence its experimental warning.
+const nodeArgs = ['--disable-warning=ExperimentalWarning', cli];
 
 function runCli(args: string[]) {
   return spawnSync(process.execPath, [...nodeArgs, ...args], { cwd: root, encoding: 'utf8', timeout: 30_000 });

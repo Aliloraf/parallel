@@ -1,0 +1,43 @@
+{
+  "name": "@aliloraf/parallel-sdk",
+  "version": "0.1.0",
+  "description": "Scenario API for Parallel: define actors, checkpoints and invariants for deterministic concurrency testing",
+  "license": "Apache-2.0",
+  "author": "Alae Raftani",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aliloraf/parallel.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/Aliloraf/parallel#readme",
+  "bugs": {
+    "url": "https://github.com/Aliloraf/parallel/issues"
+  },
+  "keywords": [
+    "concurrency",
+    "race-condition",
+    "testing",
+    "deterministic",
+    "simulation",
+    "schedule-exploration",
+    "typescript"
+  ],
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false
+}

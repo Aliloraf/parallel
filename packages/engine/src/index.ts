@@ -1,6 +1,6 @@
 import { clearTimeout, setImmediate, setTimeout } from 'node:timers';
-import { SimulationCancelledError } from '../../sdk/src/index.ts';
-import type { Actor, Scenario } from '../../sdk/src/index.ts';
+import { SimulationCancelledError } from '@aliloraf/parallel-sdk';
+import type { Actor, Scenario } from '@aliloraf/parallel-sdk';
 import { ROOT_BRANCH, branchAt, choicePoint, sameChoices } from './history.ts';
 import type { Branch, ChoicePoint } from './history.ts';
 
@@ -49,11 +49,6 @@ export type Trace = {
    * omit it; for them, outcome `incomplete` implies the bound.
    */
   stepLimitReached?: true;
-};
-/** @deprecated Not part of the engine's API; retained for type compatibility. */
-export type RunResult = {
-  trace: Trace;
-  alternatives: Decision[][];
 };
 export type ExploreOptions = {
   maxSchedules?: number;

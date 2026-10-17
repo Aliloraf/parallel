@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { defineScenario } from '../packages/sdk/src/index.ts';
-import { explore, replay } from '../packages/engine/src/index.ts';
-import { inventoryScenario } from '../examples/inventory/src/scenarios.ts';
+import { defineScenario } from '@aliloraf/parallel-sdk';
+import { explore, replay } from '@aliloraf/parallel-engine';
+import { inventoryScenario } from '../packages/cli/dist/demos/inventory.js';
 
 test('enumerates exactly six distinct two-actor, two-checkpoint schedules', async () => {
   const summary = await explore(inventoryScenario());
