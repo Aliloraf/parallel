@@ -109,7 +109,7 @@ The following requirements are mandatory for v0.1 unless noted otherwise. Every 
 
 **FR-008 — Finite schedule exploration.** For finite, supported scenarios, the engine MUST systematically enumerate distinct permitted interleavings up to configured bounds. Exhaustive enumeration is required only when the search completes without hitting a bound or unsupported behavior.
 
-**FR-009 — Repeatable exploration order.** Given the same scenario, configuration, and supported deterministic operations, exploration MUST produce the same schedule order and outcomes across repeated runs in the same supported environment.
+**FR-009 — Repeatable exploration order.** Given the same scenario, configuration, and supported deterministic operations, exploration MUST produce the same schedule order and outcomes across repeated runs in the same supported environment. If re-executing a recorded schedule prefix observes different scheduling choices, the engine MUST report the exploration as nondeterministic and incomplete, and MUST NOT discard results already found.
 
 **FR-010 — Execution bounds.** The engine MUST support a maximum number of explored schedules and a maximum number of controlled scheduling steps per execution. A run MUST report if either limit prevented completion. A wall-clock timeout MAY be added for safety but does not constitute deterministic scheduling.
 
@@ -133,9 +133,9 @@ The following requirements are mandatory for v0.1 unless noted otherwise. Every 
 
 **FR-018 — Deterministic replay.** Given the same compatible scenario implementation, fresh initial state, and controlled environment, replay MUST follow the saved actor decisions and reproduce the same failure outcome.
 
-**FR-019 — Replay divergence detection.** If a trace cannot be replayed because actors, checkpoints, or execution paths differ, the engine MUST return an explicit `replay_diverged` result instead of claiming success.
+**FR-019 — Replay divergence detection.** If a trace cannot be replayed because actors, checkpoints, or execution paths differ, the engine MUST return an explicit `replay_diverged` result instead of claiming success. The result SHOULD state the kind of divergence in machine-readable form.
 
-**FR-020 — Stable trace format.** Trace files MUST include a schema version. Format changes that are incompatible with earlier versions MUST be explicitly detected or migrated.
+**FR-020 — Stable trace format.** Trace files MUST include a schema version. Format changes that are incompatible with earlier versions MUST be explicitly detected or migrated. Structurally invalid traces MUST be rejected with an error identifying the invalid field.
 
 ### 6.5 CLI and Integration
 

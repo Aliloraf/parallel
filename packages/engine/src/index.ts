@@ -1,6 +1,8 @@
 import { clearTimeout, setImmediate, setTimeout } from 'node:timers';
 import { SimulationCancelledError } from '../../sdk/src/index.ts';
 import type { Actor, Scenario } from '../../sdk/src/index.ts';
+import { ROOT_BRANCH, branchAt, choicePoint, sameChoices } from './history.ts';
+import type { Branch, ChoicePoint } from './history.ts';
 
 export type Decision = { actor: string; checkpoint: string };
 export type Outcome = 'passed' | 'invariant_failed' | 'actor_error' | 'incomplete' | 'stalled';
@@ -40,7 +42,15 @@ export type Trace = {
   stall?: StallReport;
   /** Present only when actors misbehaved while the run was being closed. */
   teardown?: TeardownEntry[];
+  /**
+   * Present only when the run stopped at the `maxSteps` bound while actors were
+   * still eligible. The outcome is then `incomplete`, or `actor_error` if an
+   * actor failed before the bound. Traces recorded before this field existed
+   * omit it; for them, outcome `incomplete` implies the bound.
+   */
+  stepLimitReached?: true;
 };
+/** @deprecated Not part of the engine's API; retained for type compatibility. */
 export type RunResult = {
   trace: Trace;
   alternatives: Decision[][];
@@ -63,11 +73,49 @@ export type ExploreResult = {
   outcomes: Trace[];
   complete: boolean;
   limitReached: 'maxSchedules' | 'maxSteps' | null;
-  /** Set when exploration stopped early because a run stalled or left work it could not settle. */
-  haltReason: 'stalled' | 'abandoned_work' | null;
+  /**
+   * Set when exploration stopped before every schedule within the bounds was
+   * explored for a reason other than a bound: a run stalled, left work it
+   * could not settle, re-executed nondeterministically, or `stopOnFailure`.
+   */
+  haltReason: 'stalled' | 'abandoned_work' | 'nondeterministic' | 'stop_on_failure' | null;
   /** True if some actor task may still be running in this process; the engine cannot cancel it. */
   abandonedWork: boolean;
+  /** Set when `haltReason` is `nondeterministic`. */
+  nondeterminism: NondeterminismReport | null;
 };
+/**
+ * Re-executing a recorded schedule prefix observed a different choice point
+ * than the run that recorded it. Detection is limited to the eligible actors
+ * and checkpoints at forced scheduling steps; it cannot prove a scenario
+ * deterministic.
+ */
+export type NondeterminismReport = {
+  /** Number of decisions made before the differing choice point. */
+  afterDecisions: number;
+  /** The forced prefix the run was re-executing. */
+  prefix: Decision[];
+  /** Decisions actually made before the difference was observed. */
+  decisions: Decision[];
+  /** Eligible decisions recorded at this step by the run that produced the prefix. */
+  expected: Decision[];
+  /** Eligible decisions observed on re-execution (empty if none). */
+  observed: Decision[];
+  /** Present only when actors misbehaved while the diverged run was being closed. */
+  teardown?: TeardownEntry[];
+  /** True if an actor task from the diverged run may still be running. */
+  abandonedWork: boolean;
+};
+/** Machine-readable reason a replay could not reproduce a trace. */
+export type ReplayDivergence =
+  | { kind: 'unsupported_schema'; schemaVersion: number }
+  | { kind: 'scenario_mismatch'; expected: string; observed: string }
+  | { kind: 'decision_not_eligible'; afterDecisions: number; expected: Decision; eligible: Decision[] }
+  /** The scenario finished after `afterDecisions` decisions, but the trace expects it to continue. */
+  | { kind: 'ended_early'; afterDecisions: number }
+  /** The trace finished naturally after `afterDecisions` decisions, but the scenario still had eligible actors. */
+  | { kind: 'continued'; afterDecisions: number; eligible: Decision[] }
+  | { kind: 'result_mismatch'; fields: ('outcome' | 'violations' | 'errors' | 'stall')[] };
 export type ReplayOptions = {
   /** Defaults to the trace's recorded stall timeout, then to `DEFAULT_STEP_TIMEOUT_MS`. */
   stepTimeoutMs?: number;
@@ -75,15 +123,110 @@ export type ReplayOptions = {
 /** `abandonedWork` is true if an actor task from the replayed run may still be running. */
 export type ReplayResult =
   | { status: 'replayed'; trace: Trace; abandonedWork: boolean }
-  | { status: 'replay_diverged'; reason: string; observed?: Trace; abandonedWork: boolean };
+  | { status: 'replay_diverged'; reason: string; divergence: ReplayDivergence; observed?: Trace; abandonedWork: boolean };
 
 export const DEFAULT_STEP_TIMEOUT_MS = 10_000;
 /** Largest delay `setTimeout` honors; larger values silently fire after 1 ms. */
 const MAX_TIMER_MS = 2_147_483_647;
 
-class ReplayDiverged extends Error {
-  /** Set after the diverged run has been closed. */
-  abandonedWork = false;
+/** Thrown when a value is not a structurally valid schema-version-1 trace. */
+export class InvalidTraceError extends Error {
+  override name = 'InvalidTraceError';
+  constructor(detail: string) {
+    super(`Invalid trace: ${detail}`);
+  }
+}
+
+/**
+ * Thrown when the engine itself fails after a run's actors have started. The
+ * run was still closed with bounded teardown; `abandonedWork` reports whether
+ * actor tasks from it may still be running.
+ */
+export class ExecutionError extends Error {
+  override name = 'ExecutionError';
+  readonly abandonedWork: boolean;
+  constructor(cause: unknown, abandonedWork: boolean) {
+    super(`Engine failure during execution: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    this.abandonedWork = abandonedWork;
+  }
+}
+
+const OUTCOMES: readonly Outcome[] = ['passed', 'invariant_failed', 'actor_error', 'incomplete', 'stalled'];
+const TEARDOWN_STATUSES: readonly TeardownEntry['status'][] = ['ignored-cancellation', 'cleanup-error', 'unresponsive'];
+
+function invalid(detail: string): never {
+  throw new InvalidTraceError(detail);
+}
+function objectAt(value: unknown, path: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) invalid(`${path} must be an object`);
+  return value as Record<string, unknown>;
+}
+function arrayAt(value: unknown, path: string): unknown[] {
+  if (!Array.isArray(value)) invalid(`${path} must be an array`);
+  return value;
+}
+function stringAt(value: unknown, path: string, nonEmpty = false): void {
+  if (typeof value !== 'string' || (nonEmpty && value.length === 0)) invalid(`${path} must be a ${nonEmpty ? 'non-empty ' : ''}string`);
+}
+
+/**
+ * Checks that `value` is a structurally valid schema-version-1 trace and
+ * returns it unchanged. Unknown extra fields are ignored. Missing optional
+ * fields are never filled in: a trace recorded before a field existed is
+ * accepted as it is. Throws `InvalidTraceError` naming the first invalid field.
+ */
+export function validateTrace(value: unknown): Trace {
+  const trace = objectAt(value, 'trace');
+  const { schemaVersion, outcome } = trace;
+  if (typeof schemaVersion !== 'number' || !Number.isSafeInteger(schemaVersion) || schemaVersion <= 0) invalid('schemaVersion must be a positive integer');
+  if (schemaVersion !== 1) invalid(`schemaVersion ${schemaVersion} is not supported (expected 1)`);
+  stringAt(trace.scenario, 'scenario', true);
+  const decisions = arrayAt(trace.decisions, 'decisions');
+  decisions.forEach((entry, i) => {
+    const decision = objectAt(entry, `decisions[${i}]`);
+    stringAt(decision.actor, `decisions[${i}].actor`, true);
+    stringAt(decision.checkpoint, `decisions[${i}].checkpoint`, true);
+  });
+  if (!OUTCOMES.includes(outcome as Outcome)) invalid(`outcome must be one of ${OUTCOMES.join(', ')}`);
+  arrayAt(trace.violations, 'violations').forEach((entry, i) => {
+    const violation = objectAt(entry, `violations[${i}]`);
+    stringAt(violation.name, `violations[${i}].name`);
+    stringAt(violation.detail, `violations[${i}].detail`);
+  });
+  arrayAt(trace.errors, 'errors').forEach((entry, i) => {
+    const error = objectAt(entry, `errors[${i}]`);
+    stringAt(error.actor, `errors[${i}].actor`);
+    stringAt(error.message, `errors[${i}].message`);
+  });
+  if (trace.stall === undefined) {
+    if (outcome === 'stalled') invalid('stall is required when outcome is "stalled"');
+  } else {
+    if (outcome !== 'stalled') invalid('stall is only allowed when outcome is "stalled"');
+    const stall = objectAt(trace.stall, 'stall');
+    if (typeof stall.timeoutMs !== 'number' || !Number.isSafeInteger(stall.timeoutMs) || stall.timeoutMs <= 0 || stall.timeoutMs > MAX_TIMER_MS) {
+      invalid(`stall.timeoutMs must be an integer between 1 and ${MAX_TIMER_MS}`);
+    }
+    if (stall.afterDecisions !== decisions.length) invalid('stall.afterDecisions must equal the number of decisions');
+    arrayAt(stall.actors, 'stall.actors').forEach((entry, i) => {
+      const actor = objectAt(entry, `stall.actors[${i}]`);
+      stringAt(actor.actor, `stall.actors[${i}].actor`, true);
+      if (actor.lastCheckpoint !== null && typeof actor.lastCheckpoint !== 'string') invalid(`stall.actors[${i}].lastCheckpoint must be a string or null`);
+      if (typeof actor.settledAfterAbort !== 'boolean') invalid(`stall.actors[${i}].settledAfterAbort must be a boolean`);
+    });
+  }
+  if (trace.teardown !== undefined) {
+    arrayAt(trace.teardown, 'teardown').forEach((entry, i) => {
+      const teardown = objectAt(entry, `teardown[${i}]`);
+      stringAt(teardown.actor, `teardown[${i}].actor`, true);
+      if (!TEARDOWN_STATUSES.includes(teardown.status as TeardownEntry['status'])) invalid(`teardown[${i}].status must be one of ${TEARDOWN_STATUSES.join(', ')}`);
+      stringAt(teardown.detail, `teardown[${i}].detail`);
+    });
+  }
+  if (trace.stepLimitReached !== undefined) {
+    if (trace.stepLimitReached !== true) invalid('stepLimitReached must be true when present');
+    if (outcome !== 'incomplete' && outcome !== 'actor_error') invalid('stepLimitReached is only allowed when outcome is "incomplete" or "actor_error"');
+  }
+  return value as Trace;
 }
 
 function validateStepTimeout(stepTimeoutMs: number): number {
@@ -351,25 +494,68 @@ class Run<State> {
   }
 }
 
+/** How a run's forced prefix is checked at each forced step. */
+type Forced =
+  /** Exploration: the choice point at each forced step must equal the one recorded when the branch was created. */
+  | { mode: 'explore'; branch: Branch }
+  /** Replay: each recorded decision must be eligible; traces do not record choice points. */
+  | { mode: 'replay'; prefix: readonly Decision[] };
+
+type StepDivergence =
+  | { kind: 'choices_changed'; afterDecisions: number; expected: Decision[]; observed: Decision[] }
+  | { kind: 'decision_not_eligible'; afterDecisions: number; expected: Decision; eligible: Decision[] }
+  | { kind: 'ended_early'; afterDecisions: number };
+
+type Execution =
+  | {
+    kind: 'completed';
+    trace: Trace;
+    /** Unexplored sibling branches (exploration only). */
+    branches: Branch[];
+    /** Eligible decisions left when the step bound stopped the run; empty otherwise. */
+    remaining: Decision[];
+  }
+  | { kind: 'diverged'; divergence: StepDivergence; decisions: Decision[]; teardown: TeardownEntry[]; abandonedWork: boolean };
+
+const copyDecision = ({ actor, checkpoint }: Decision): Decision => ({ actor, checkpoint });
+const sameDecision = (a: Decision, b: Decision) => a.actor === b.actor && a.checkpoint === b.checkpoint;
+
+function checkForcedStep(forced: Forced, step: number, eligible: Decision[]): StepDivergence | undefined {
+  if (forced.mode === 'explore') {
+    const expected = forced.branch.expected[step]!;
+    if (sameChoices(expected, eligible)) return undefined;
+    return { kind: 'choices_changed', afterDecisions: step, expected: expected.map(copyDecision), observed: eligible };
+  }
+  const wanted = forced.prefix[step]!;
+  if (eligible.length === 0) return { kind: 'ended_early', afterDecisions: step };
+  if (!eligible.some((option) => sameDecision(option, wanted))) {
+    return { kind: 'decision_not_eligible', afterDecisions: step, expected: copyDecision(wanted), eligible };
+  }
+  return undefined;
+}
+
 /**
  * Executes one deterministic schedule of *explicit* asynchronous checkpoints.
  * Work between checkpoints is not interleaved; unmanaged awaits are tolerated
- * only within the step budget. Branch alternatives are recorded for subsequent
- * depth-first exploration.
+ * only within the step budget. Every path, including divergence and engine
+ * failure, closes the run with bounded teardown and measures abandoned work.
  */
 async function execute<State>(
   scenario: Scenario<State>,
-  prefix: readonly Decision[],
+  forced: Forced,
   limits: { maxSteps: number; stepTimeoutMs: number },
-  exactReplay = false,
-): Promise<RunResult> {
+): Promise<Execution> {
+  const prefix = forced.mode === 'explore' ? forced.branch.prefix : forced.prefix;
   const run = new Run(scenario, limits.stepTimeoutMs);
-  const alternatives: Decision[][] = [];
+  const branches: Branch[] = [];
+  const choices: ChoicePoint[] = [];
   const violations: Violation[] = [];
   let stalled: ActorRecord[] = [];
   let outcome: Outcome = 'passed';
-  let closeReason = 'replay diverged';
-  let thrown: { cause: unknown } | undefined;
+  let stepLimitReached = false;
+  let remaining: Decision[] = [];
+  let divergence: StepDivergence | undefined;
+  let failure: { cause: unknown } | undefined;
   try {
     run.start();
     for (;;) {
@@ -379,48 +565,63 @@ async function execute<State>(
         break;
       }
       const eligible = run.eligible();
-      if (eligible.length === 0) break;
-      if (run.decisions.length >= limits.maxSteps) { outcome = 'incomplete'; break; }
       const step = run.decisions.length;
-      const selected = step < prefix.length ? prefix[step]! : eligible[0]!;
-      if (!eligible.some((option) => option.actor === selected.actor && option.checkpoint === selected.checkpoint)) {
-        throw new ReplayDiverged(`Step ${step + 1}: actor/checkpoint ${selected.actor}:${selected.checkpoint} is not eligible`);
+      // Forced steps are checked before anything else, so a run that diverges
+      // or ends early inside its prefix is never reported as a shorter schedule.
+      if (step < prefix.length) {
+        divergence = checkForcedStep(forced, step, eligible);
+        if (divergence) break;
+      } else if (eligible.length === 0) {
+        break;
+      } else if (step >= limits.maxSteps) {
+        stepLimitReached = true;
+        remaining = eligible;
+        break;
       }
-      // Every unforced decision creates an unexplored sibling prefix.
-      if (!exactReplay && step >= prefix.length) {
-        for (const option of eligible.slice(1)) alternatives.push([...run.decisions, option]);
+      const point = choicePoint(eligible);
+      choices.push(point);
+      const selected = step < prefix.length ? prefix[step]! : point[0]!;
+      // Every unforced decision creates an unexplored sibling branch.
+      if (forced.mode === 'explore' && step >= prefix.length) {
+        for (const option of point.slice(1)) branches.push(branchAt(run.decisions, choices, option));
       }
       run.resume(selected.actor);
     }
-    if (exactReplay && outcome !== 'stalled' && run.decisions.length !== prefix.length) {
-      throw new ReplayDiverged(`Trace has ${prefix.length} decisions but scenario finished after ${run.decisions.length}`);
-    }
-    if (outcome === 'passed' && run.errors.length > 0) outcome = 'actor_error';
-    if (outcome === 'passed') {
-      for (const invariant of scenario.invariants) {
-        try {
-          if (!invariant.check(run.state)) {
-            violations.push({ name: invariant.name, detail: invariant.describeFailure?.(run.state) ?? `Invariant "${invariant.name}" returned false` });
+    if (!divergence && outcome !== 'stalled') {
+      // An actor error is a detected failure even when the step bound also stopped the run.
+      if (run.errors.length > 0) outcome = 'actor_error';
+      else if (stepLimitReached) outcome = 'incomplete';
+      else {
+        for (const invariant of scenario.invariants) {
+          try {
+            if (!invariant.check(run.state)) {
+              violations.push({ name: invariant.name, detail: invariant.describeFailure?.(run.state) ?? `Invariant "${invariant.name}" returned false` });
+            }
+          } catch (cause) {
+            run.errors.push({ actor: '(invariant)', message: message(cause) });
+            outcome = 'actor_error';
           }
-        } catch (cause) {
-          run.errors.push({ actor: '(invariant)', message: message(cause) });
-          outcome = 'actor_error';
         }
+        if (outcome === 'passed' && violations.length > 0) outcome = 'invariant_failed';
       }
-      if (outcome === 'passed' && violations.length > 0) outcome = 'invariant_failed';
     }
-    closeReason = { passed: 'run finished', invariant_failed: 'run finished', actor_error: 'run finished', incomplete: 'step limit reached', stalled: 'actor stalled' }[outcome];
   } catch (cause) {
-    thrown = { cause };
+    failure = { cause };
   }
+  const closeReason = failure ? 'engine failure'
+    : divergence ? (forced.mode === 'explore' ? 'nondeterministic re-execution' : 'replay diverged')
+    : outcome === 'stalled' ? 'actor stalled'
+    : stepLimitReached ? 'step limit reached'
+    : 'run finished';
   await run.close(closeReason);
-  if (thrown) {
-    if (thrown.cause instanceof ReplayDiverged) thrown.cause.abandonedWork = run.leftUnsettledWork();
-    throw thrown.cause;
+  if (failure) throw new ExecutionError(failure.cause, run.leftUnsettledWork());
+  // Copies: abandoned actors and callers must not be able to mutate engine history or each other's results.
+  const decisions = run.decisions.map(copyDecision);
+  if (divergence) {
+    return { kind: 'diverged', divergence, decisions, teardown: [...run.teardown], abandonedWork: run.leftUnsettledWork() };
   }
-  // Copies: abandoned actors must not be able to mutate a returned trace.
   const trace: Trace = {
-    schemaVersion: 1, scenario: scenario.name, decisions: [...run.decisions], outcome, violations, errors: [...run.errors],
+    schemaVersion: 1, scenario: scenario.name, decisions, outcome, violations, errors: [...run.errors],
   };
   if (outcome === 'stalled') {
     trace.stall = {
@@ -430,34 +631,57 @@ async function execute<State>(
     };
   }
   if (run.teardown.length > 0) trace.teardown = [...run.teardown];
-  return { trace, alternatives };
+  if (stepLimitReached) trace.stepLimitReached = true;
+  return { kind: 'completed', trace, branches, remaining };
 }
 
 export async function explore<State>(scenario: Scenario<State>, options: ExploreOptions = {}): Promise<ExploreResult> {
   const { maxSchedules, maxSteps, stopOnFailure, stepTimeoutMs } = validateOptions(options);
-  const pending: Decision[][] = [[]];
+  const pending: Branch[] = [ROOT_BRANCH];
   const outcomes: Trace[] = [];
   const failures: Trace[] = [];
   let limitReached: ExploreResult['limitReached'] = null;
   let haltReason: ExploreResult['haltReason'] = null;
   let abandonedWork = false;
+  let nondeterminism: NondeterminismReport | null = null;
   while (pending.length > 0 && outcomes.length < maxSchedules) {
-    const prefix = pending.pop()!;
-    const result = await execute(scenario, prefix, { maxSteps, stepTimeoutMs });
-    outcomes.push(result.trace);
-    if (result.trace.outcome === 'incomplete') limitReached = 'maxSteps';
-    if (result.trace.outcome === 'invariant_failed' || result.trace.outcome === 'actor_error' || result.trace.outcome === 'stalled') {
-      failures.push(result.trace);
-    }
-    // LIFO depth-first traversal, reproducible with stable actor ordering.
-    pending.push(...result.alternatives.reverse());
-    // Never start another schedule while work from this one may still be running.
-    abandonedWork = leavesAbandonedWork(result.trace);
-    if (result.trace.outcome === 'stalled' || abandonedWork) {
-      haltReason = result.trace.outcome === 'stalled' ? 'stalled' : 'abandoned_work';
+    const branch = pending.pop()!;
+    const result = await execute(scenario, { mode: 'explore', branch }, { maxSteps, stepTimeoutMs });
+    if (result.kind === 'diverged') {
+      const { divergence } = result;
+      if (divergence.kind !== 'choices_changed') throw new Error(`Unexpected exploration divergence: ${divergence.kind}`);
+      // Results already collected stay valid observations; the exploration as a whole cannot be trusted to be complete.
+      nondeterminism = {
+        afterDecisions: divergence.afterDecisions,
+        prefix: branch.prefix.map(copyDecision),
+        decisions: result.decisions,
+        expected: divergence.expected,
+        observed: divergence.observed,
+        ...(result.teardown.length > 0 ? { teardown: result.teardown } : {}),
+        abandonedWork: result.abandonedWork,
+      };
+      abandonedWork = result.abandonedWork;
+      haltReason = 'nondeterministic';
       break;
     }
-    if (stopOnFailure && failures.length > 0) break;
+    const { trace } = result;
+    outcomes.push(trace);
+    if (trace.stepLimitReached) limitReached = 'maxSteps';
+    if (trace.outcome === 'invariant_failed' || trace.outcome === 'actor_error' || trace.outcome === 'stalled') {
+      failures.push(trace);
+    }
+    // LIFO depth-first traversal, reproducible with stable actor ordering.
+    pending.push(...result.branches.reverse());
+    // Never start another schedule while work from this one may still be running.
+    abandonedWork = leavesAbandonedWork(trace);
+    if (trace.outcome === 'stalled' || abandonedWork) {
+      haltReason = trace.outcome === 'stalled' ? 'stalled' : 'abandoned_work';
+      break;
+    }
+    if (stopOnFailure && failures.length > 0 && pending.length > 0) {
+      haltReason = 'stop_on_failure';
+      break;
+    }
   }
   if (pending.length > 0 && limitReached === null && haltReason === null) limitReached = 'maxSchedules';
   return {
@@ -469,6 +693,7 @@ export async function explore<State>(scenario: Scenario<State>, options: Explore
     limitReached,
     haltReason,
     abandonedWork,
+    nondeterminism,
   };
 }
 
@@ -480,20 +705,57 @@ function sameStall(observed: StallReport | undefined, recorded: StallReport | un
   return key(observed) === key(recorded);
 }
 
-export async function replay<State>(scenario: Scenario<State>, trace: Trace, options: ReplayOptions = {}): Promise<ReplayResult> {
-  const stepTimeoutMs = validateStepTimeout(options.stepTimeoutMs ?? trace.stall?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS);
-  if (trace.schemaVersion !== 1) return { status: 'replay_diverged', reason: 'Unsupported trace schema version', abandonedWork: false };
-  if (trace.scenario !== scenario.name) return { status: 'replay_diverged', reason: 'Scenario name does not match trace', abandonedWork: false };
-  try {
-    const result = await execute(scenario, trace.decisions, { maxSteps: trace.decisions.length + 1, stepTimeoutMs }, true);
-    if (result.trace.outcome !== trace.outcome
-        || JSON.stringify(result.trace.violations) !== JSON.stringify(trace.violations)
-        || !sameStall(result.trace.stall, trace.stall)) {
-      return { status: 'replay_diverged', reason: 'Observed outcome differs from recorded trace', observed: result.trace, abandonedWork: leavesAbandonedWork(result.trace) };
-    }
-    return { status: 'replayed', trace: result.trace, abandonedWork: leavesAbandonedWork(result.trace) };
-  } catch (cause) {
-    if (cause instanceof ReplayDiverged) return { status: 'replay_diverged', reason: cause.message, abandonedWork: cause.abandonedWork };
-    throw cause;
+function describeDivergence(divergence: ReplayDivergence): string {
+  switch (divergence.kind) {
+    case 'unsupported_schema': return `Unsupported trace schema version ${divergence.schemaVersion}`;
+    case 'scenario_mismatch': return `Trace is for scenario "${divergence.expected}", not "${divergence.observed}"`;
+    case 'decision_not_eligible': return `Step ${divergence.afterDecisions + 1}: actor/checkpoint ${divergence.expected.actor}:${divergence.expected.checkpoint} is not eligible`;
+    case 'ended_early': return `Scenario finished after ${divergence.afterDecisions} decision(s), but the trace expects it to continue`;
+    case 'continued': return `Scenario still had eligible actors after the trace's ${divergence.afterDecisions} decision(s)`;
+    case 'result_mismatch': return `Observed ${divergence.fields.join(', ')} differ from the recorded trace`;
   }
+}
+
+function diverged(divergence: ReplayDivergence, abandonedWork: boolean, observed?: Trace): ReplayResult {
+  return { status: 'replay_diverged', reason: describeDivergence(divergence), divergence, ...(observed ? { observed } : {}), abandonedWork };
+}
+
+/**
+ * Replays a recorded trace. The trace is validated structurally first
+ * (`InvalidTraceError`). Exactly the recorded number of decisions is executed;
+ * the step bound is respected for traces that recorded it.
+ */
+export async function replay<State>(scenario: Scenario<State>, trace: Trace, options: ReplayOptions = {}): Promise<ReplayResult> {
+  const version: unknown = typeof trace === 'object' && trace !== null ? (trace as { schemaVersion?: unknown }).schemaVersion : undefined;
+  if (typeof version === 'number' && Number.isSafeInteger(version) && version > 1) {
+    return diverged({ kind: 'unsupported_schema', schemaVersion: version }, false);
+  }
+  validateTrace(trace);
+  const stepTimeoutMs = validateStepTimeout(options.stepTimeoutMs ?? trace.stall?.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS);
+  if (trace.scenario !== scenario.name) {
+    return diverged({ kind: 'scenario_mismatch', expected: trace.scenario, observed: scenario.name }, false);
+  }
+  const length = trace.decisions.length;
+  const result = await execute(scenario, { mode: 'replay', prefix: trace.decisions }, { maxSteps: length, stepTimeoutMs });
+  if (result.kind === 'diverged') {
+    const { divergence } = result;
+    if (divergence.kind === 'choices_changed') throw new Error('Unexpected replay divergence: choices_changed');
+    return diverged(divergence, result.abandonedWork);
+  }
+  const observed = result.trace;
+  const abandonedWork = leavesAbandonedWork(observed);
+  if (observed.outcome !== 'stalled') {
+    // Traces recorded before `stepLimitReached` existed imply the bound only through outcome `incomplete`.
+    const expectedBound = trace.stepLimitReached === true || trace.outcome === 'incomplete';
+    const observedBound = observed.stepLimitReached === true;
+    if (observedBound && !expectedBound) return diverged({ kind: 'continued', afterDecisions: length, eligible: result.remaining }, abandonedWork, observed);
+    if (!observedBound && expectedBound) return diverged({ kind: 'ended_early', afterDecisions: length }, abandonedWork, observed);
+  }
+  const fields: ('outcome' | 'violations' | 'errors' | 'stall')[] = [];
+  if (observed.outcome !== trace.outcome) fields.push('outcome');
+  if (JSON.stringify(observed.violations) !== JSON.stringify(trace.violations)) fields.push('violations');
+  if (JSON.stringify(observed.errors) !== JSON.stringify(trace.errors)) fields.push('errors');
+  if (!sameStall(observed.stall, trace.stall)) fields.push('stall');
+  if (fields.length > 0) return diverged({ kind: 'result_mismatch', fields }, abandonedWork, observed);
+  return { status: 'replayed', trace: observed, abandonedWork };
 }

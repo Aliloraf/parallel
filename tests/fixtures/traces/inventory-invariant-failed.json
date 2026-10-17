@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "scenario": "inventory-buggy",
+  "decisions": [
+    {
+      "actor": "customer-b",
+      "checkpoint": "read-stock"
+    },
+    {
+      "actor": "customer-a",
+      "checkpoint": "read-stock"
+    },
+    {
+      "actor": "customer-a",
+      "checkpoint": "commit-purchase"
+    },
+    {
+      "actor": "customer-b",
+      "checkpoint": "commit-purchase"
+    }
+  ],
+  "outcome": "invariant_failed",
+  "violations": [
+    {
+      "name": "no-overselling",
+      "detail": "Expected at most 1 successful purchase, got 2"
+    }
+  ],
+  "errors": []
+}

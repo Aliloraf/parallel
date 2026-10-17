@@ -235,3 +235,94 @@ test('CLI reports which actor left abandoned work when exploration halts without
     assert.match(human.stdout, /TEARDOWN a: unresponsive/);
   });
 });
+
+// Actor b's checkpoint name changes between runs, so re-executing a prefix diverges.
+const nondeterministicScenario = (cleanup: string) => `let n = 0;
+export default {
+  name: 'cli-nondeterministic',
+  createState: () => ({}),
+  actors: [
+    { id: 'a', async run({ checkpoint }) { try { await checkpoint('a1'); await checkpoint('a2'); } catch { ${cleanup} } } },
+    { id: 'b', async run({ checkpoint }) { await checkpoint(n++ % 2 ? 'x' : 'y'); } },
+  ],
+  invariants: [{ name: 'ok', check: () => true }],
+};`;
+
+test('CLI reports nondeterministic exploration as structured data with exit status 1', () => {
+  withScenarioFile(nondeterministicScenario(''), (file) => {
+    const json = runCli(['test', file, '--json']);
+    assert.equal(json.status, 1, json.stderr);
+    const report = JSON.parse(json.stdout);
+    assert.equal(report.complete, false);
+    assert.equal(report.haltReason, 'nondeterministic');
+    assert.equal(report.abandonedWork, false);
+    assert.equal(report.schedulesExplored, 1);
+    assert.deepEqual(report.nondeterminism.observed, [{ actor: 'a', checkpoint: 'a1' }, { actor: 'b', checkpoint: 'x' }]);
+    assert.equal(report.haltTrace, null, 'the diverged run is not an explored schedule');
+    assert.equal(report.firstFailure, null);
+    const human = runCli(['test', file]);
+    assert.equal(human.status, 1, human.stderr);
+    assert.match(human.stdout, /Exploration halted: nondeterministic/);
+    assert.match(human.stdout, /NONDETERMINISM after 0 decision\(s\) of forced prefix \[b:y\]/);
+    assert.match(human.stdout, /expected choices: a:a1, b:y/);
+    assert.match(human.stdout, /observed choices: a:a1, b:x/);
+    assert.equal(human.stderr, '');
+  });
+});
+
+test('CLI terminates promptly when nondeterministic exploration leaves abandoned work', () => {
+  withScenarioFile(nondeterministicScenario('await new Promise((resolve) => setTimeout(resolve, 60_000));'), (file) => {
+    const started = Date.now();
+    const result = runCli(['test', file, '--step-timeout', '100', '--json']);
+    assert.ok(Date.now() - started < 15_000, 'CLI must not wait for the abandoned cleanup timer');
+    assert.equal(result.status, 1, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.haltReason, 'nondeterministic');
+    assert.equal(report.abandonedWork, true);
+    assert.equal(report.nondeterminism.teardown[0].status, 'unresponsive');
+    assert.match(result.stderr, /abandoned/i);
+  });
+});
+
+test('CLI rejects malformed trace files with exit status 2', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'parallel-bad-trace-'));
+  try {
+    const notJson = join(dir, 'not-json.json');
+    writeFileSync(notJson, '{ "schemaVersion": 1, ');
+    const parse = runCli(['replay', notJson]);
+    assert.equal(parse.status, 2);
+    assert.match(parse.stderr, /is not valid JSON/);
+
+    const badField = join(dir, 'bad-field.json');
+    writeFileSync(badField, JSON.stringify({ schemaVersion: 1, scenario: 'inventory-buggy', decisions: [{ actor: 'customer-a' }], outcome: 'passed', violations: [], errors: [] }));
+    const field = runCli(['replay', badField]);
+    assert.equal(field.status, 2);
+    assert.match(field.stderr, /Invalid trace: decisions\[0\]\.checkpoint must be a non-empty string/);
+
+    const noScenario = join(dir, 'no-scenario.json');
+    writeFileSync(noScenario, JSON.stringify({ schemaVersion: 1, decisions: [], outcome: 'passed', violations: [], errors: [] }));
+    const missing = runCli(['replay', noScenario]);
+    assert.equal(missing.status, 2);
+    assert.match(missing.stderr, /Invalid trace: scenario must be a non-empty string/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('CLI replay output includes the structured divergence', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'parallel-divergence-'));
+  try {
+    const path = join(dir, 'failure.json');
+    assert.equal(runCli(['test', 'inventory-buggy', '--trace-out', path]).status, 1);
+    const trace = JSON.parse(readFileSync(path, 'utf8'));
+    trace.decisions.push({ actor: 'customer-a', checkpoint: 'extra' });
+    writeFileSync(path, JSON.stringify(trace));
+    const result = runCli(['replay', path]);
+    assert.equal(result.status, 1, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.status, 'replay_diverged');
+    assert.deepEqual(output.divergence, { kind: 'ended_early', afterDecisions: 4 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

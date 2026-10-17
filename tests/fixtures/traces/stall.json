@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "scenario": "fixture-stall",
+  "decisions": [
+    {
+      "actor": "a",
+      "checkpoint": "a1"
+    }
+  ],
+  "outcome": "stalled",
+  "violations": [],
+  "errors": [],
+  "stall": {
+    "timeoutMs": 50,
+    "afterDecisions": 1,
+    "actors": [
+      {
+        "actor": "a",
+        "lastCheckpoint": "a1",
+        "settledAfterAbort": false
+      }
+    ]
+  }
+}

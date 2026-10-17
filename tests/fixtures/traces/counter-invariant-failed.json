@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "scenario": "counter-lost-update",
+  "decisions": [
+    {
+      "actor": "writer-b",
+      "checkpoint": "read-counter"
+    },
+    {
+      "actor": "writer-a",
+      "checkpoint": "read-counter"
+    },
+    {
+      "actor": "writer-a",
+      "checkpoint": "write-counter"
+    },
+    {
+      "actor": "writer-b",
+      "checkpoint": "write-counter"
+    }
+  ],
+  "outcome": "invariant_failed",
+  "violations": [
+    {
+      "name": "all-increments-preserved",
+      "detail": "Expected count to be 2, got 1"
+    }
+  ],
+  "errors": []
+}

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "scenario": "fixture-bounded-error",
+  "decisions": [
+    {
+      "actor": "a",
+      "checkpoint": "a1"
+    },
+    {
+      "actor": "b",
+      "checkpoint": "b0"
+    },
+    {
+      "actor": "b",
+      "checkpoint": "b1"
+    }
+  ],
+  "outcome": "incomplete",
+  "violations": [],
+  "errors": [
+    {
+      "actor": "a",
+      "message": "boom"
+    }
+  ]
+}
