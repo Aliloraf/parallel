@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { defineScenario } from '../packages/sdk/src/index.ts';
-import type { Scenario } from '../packages/sdk/src/index.ts';
-import { InvalidTraceError, explore, replay, validateTrace } from '../packages/engine/src/index.ts';
-import type { Trace } from '../packages/engine/src/index.ts';
-import { inventoryScenario } from '../examples/inventory/src/scenarios.ts';
+import { defineScenario } from '@aliloraf/parallel-sdk';
+import type { Scenario } from '@aliloraf/parallel-sdk';
+import { InvalidTraceError, explore, replay, validateTrace } from '@aliloraf/parallel-engine';
+import type { Trace } from '@aliloraf/parallel-engine';
+import { inventoryScenario } from '../packages/cli/dist/demos/inventory.js';
 import counter from '../examples/counter/src/scenario.ts';
 import { boundedErrorFixture, cleanupErrorFixture, stallFixture } from './fixtures/scenarios.ts';
 

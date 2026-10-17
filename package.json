@@ -4,12 +4,24 @@
   "private": true,
   "type": "module",
   "description": "Parallel: systematic concurrency testing for instrumented TypeScript programs",
-  "engines": { "node": ">=22.16.0" },
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "workspaces": [
+    "packages/sdk",
+    "packages/engine",
+    "packages/cli"
+  ],
   "scripts": {
-    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test tests/*.test.ts",
-    "demo": "node --disable-warning=ExperimentalWarning --experimental-strip-types packages/cli/src/cli.ts test inventory-buggy",
-    "demo:fixed": "node --disable-warning=ExperimentalWarning --experimental-strip-types packages/cli/src/cli.ts test inventory-fixed",
-    "typecheck": "tsc --noEmit"
+    "build": "tsc -b packages/cli",
+    "clean": "tsc -b --clean packages/cli",
+    "typecheck": "npm run build && tsc -p tsconfig.json",
+    "test": "npm run build && node --disable-warning=ExperimentalWarning --test tests/*.test.ts",
+    "test:integration": "npm run build && node --disable-warning=ExperimentalWarning --test tests/integration/*.test.ts",
+    "demo": "npm run build --silent && node packages/cli/dist/cli.js test inventory-buggy",
+    "demo:fixed": "npm run build --silent && node packages/cli/dist/cli.js test inventory-fixed",
+    "cli": "npm run build --silent && node packages/cli/dist/cli.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

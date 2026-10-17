@@ -3,10 +3,10 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { defineScenario, SimulationCancelledError } from '../packages/sdk/src/index.ts';
-import type { Actor } from '../packages/sdk/src/index.ts';
-import { DEFAULT_STEP_TIMEOUT_MS, explore, leavesAbandonedWork, replay } from '../packages/engine/src/index.ts';
-import { inventoryScenario } from '../examples/inventory/src/scenarios.ts';
+import { defineScenario, SimulationCancelledError } from '@aliloraf/parallel-sdk';
+import type { Actor } from '@aliloraf/parallel-sdk';
+import { DEFAULT_STEP_TIMEOUT_MS, explore, leavesAbandonedWork, replay } from '@aliloraf/parallel-engine';
+import { inventoryScenario } from '../packages/cli/dist/demos/inventory.js';
 
 // Per-test wall-clock guard so a lifecycle regression fails instead of hanging the suite.
 const guard = { timeout: 15_000 };
@@ -374,11 +374,9 @@ test('a stalled trace replays with its recorded timeout and same stall', guard, 
 });
 
 test('the programmatic API reports a stall instead of exiting silently', guard, () => {
-  const engine = new URL('../packages/engine/src/index.ts', import.meta.url).href;
-  const sdk = new URL('../packages/sdk/src/index.ts', import.meta.url).href;
   const script = `
-    const { explore } = await import(${JSON.stringify(engine)});
-    const { defineScenario } = await import(${JSON.stringify(sdk)});
+    const { explore } = await import('@aliloraf/parallel-engine');
+    const { defineScenario } = await import('@aliloraf/parallel-sdk');
     const summary = await explore(defineScenario({
       name: 'api-stall', createState: () => ({}),
       actors: [
@@ -388,7 +386,7 @@ test('the programmatic API reports a stall instead of exiting silently', guard, 
       invariants: [{ name: 'ok', check: () => true }],
     }), { stepTimeoutMs: 50 });
     console.log(JSON.stringify({ outcome: summary.failures[0]?.outcome, complete: summary.complete }));`;
-  const child = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--experimental-strip-types', '--input-type=module', '-e', script], {
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     cwd: fileURLToPath(new URL('../', import.meta.url)), encoding: 'utf8', timeout: 10_000,
   });
   assert.equal(child.status, 0, child.stderr);

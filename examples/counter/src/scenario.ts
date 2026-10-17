@@ -1,4 +1,4 @@
-import { defineScenario } from '../../../packages/sdk/src/index.ts';
+import { defineScenario } from '@aliloraf/parallel-sdk';
 
 // Two independent callers each increment the same logical counter.
 // Both can read 0 before either writes 1, causing a lost update.

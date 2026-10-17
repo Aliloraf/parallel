@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { defineScenario } from '../packages/sdk/src/index.ts';
-import type { Actor, Invariant, Scenario } from '../packages/sdk/src/index.ts';
-import { ExecutionError, explore } from '../packages/engine/src/index.ts';
-import type { Decision } from '../packages/engine/src/index.ts';
-import { ROOT_BRANCH, branchAt, choicePoint, sameChoices } from '../packages/engine/src/history.ts';
-import type { ChoicePoint } from '../packages/engine/src/history.ts';
-import { inventoryScenario } from '../examples/inventory/src/scenarios.ts';
+import { defineScenario } from '@aliloraf/parallel-sdk';
+import type { Actor, Invariant, Scenario } from '@aliloraf/parallel-sdk';
+import { ExecutionError, explore } from '@aliloraf/parallel-engine';
+import type { Decision } from '@aliloraf/parallel-engine';
+import { ROOT_BRANCH, branchAt, choicePoint, sameChoices } from '../packages/engine/dist/history.js';
+import type { ChoicePoint } from '../packages/engine/dist/history.js';
+import { inventoryScenario } from '../packages/cli/dist/demos/inventory.js';
 import counter from '../examples/counter/src/scenario.ts';
 import { boundedErrorFixture } from './fixtures/scenarios.ts';
 
