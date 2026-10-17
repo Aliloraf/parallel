@@ -372,3 +372,19 @@ test('the code examples in the repository README work against the installed pack
   const viaEngine = spawnSync(process.execPath, ['--test', 'last-item.test.ts'], { cwd: dir, encoding: 'utf8', timeout: 60_000 });
   assert.equal(viaEngine.status, 0, viaEngine.stdout + viaEngine.stderr);
 });
+
+test('the example in the scenario-writing guide behaves as documented', () => {
+  const guide = readFileSync(join(root, 'docs', '06-writing-scenarios.md'), 'utf8');
+  const blocks = [...guide.matchAll(/```ts\r?\n([\s\S]*?)```/g)].map((match) => match[1]!);
+  const accounts = blocks.find((block) => block.startsWith('// src/accounts.ts'));
+  const scenario = blocks.find((block) => block.startsWith('// scenarios/withdraw.ts'));
+  assert.ok(accounts && scenario, 'guide examples not found');
+  const dir = join(consumer, 'guide-example');
+  mkdirSync(join(dir, 'src'), { recursive: true });
+  mkdirSync(join(dir, 'scenarios'), { recursive: true });
+  writeFileSync(join(dir, 'src', 'accounts.ts'), accounts);
+  writeFileSync(join(dir, 'scenarios', 'withdraw.ts'), scenario);
+  const result = cli(['test', join(dir, 'scenarios', 'withdraw.ts')]);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stdout, /VIOLATION balance-matches: 2 withdrawals approved, balance is 20/);
+});

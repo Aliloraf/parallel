@@ -1,18 +1,8 @@
 # @aliloraf/parallel-engine
 
-The **Parallel** engine: systematically explores the interleavings of a
-scenario's checkpoints, checks invariants, records failure traces and replays
-them deterministically. Use it to run scenarios from your own test runner
-(`node:test`, Vitest, Jest, ...). For the command line, use
-[`@aliloraf/parallel-cli`](https://github.com/Aliloraf/parallel/tree/main/packages/cli).
+The [Parallel](https://github.com/Aliloraf/parallel) engine. It explores the interleavings of a scenario's checkpoints, checks its invariants, records failing schedules as traces and replays them. Use it to run scenarios from your own code or test runner (`node:test`, Vitest, Jest); for the command line, use [`@aliloraf/parallel-cli`](https://github.com/Aliloraf/parallel/tree/main/packages/cli).
 
-> **Not yet published.** This package is prepared for its first npm release (0.1.0) but is not on npm yet. Until then, install it from a local build: see [Install from a local build](https://github.com/Aliloraf/parallel#install-from-a-local-build-until-the-first-npm-release).
-
-Once published:
-
-```bash
-npm install --save-dev @aliloraf/parallel-engine @aliloraf/parallel-sdk
-```
+> Not published yet. Version 0.1.0 is ready but not on npm; until it is, [install it from a local build](https://github.com/Aliloraf/parallel#installation). After the release: `npm install --save-dev @aliloraf/parallel-engine @aliloraf/parallel-sdk`.
 
 ```ts
 import assert from 'node:assert/strict';
@@ -30,23 +20,19 @@ test('finds and reproduces the interleaving that oversells the last item', async
 });
 ```
 
-`@aliloraf/parallel-sdk` is a peer dependency: scenarios, the engine and the
-CLI share one copy of it.
+`last-item.ts` is the scenario from the [`@aliloraf/parallel-sdk` README](https://github.com/Aliloraf/parallel/tree/main/packages/sdk). The SDK is a peer dependency, so scenarios, the engine and the CLI share one copy of it.
 
 ## API
 
-| Export | Purpose |
+| Export | Description |
 |---|---|
-| `explore(scenario, options?)` | Explores schedules depth-first. Options: `maxSchedules` (1000), `maxSteps` (100), `stopOnFailure`, `stepTimeoutMs` (10 000). Reports `complete`, `failures`, `outcomes`, `limitReached`, `haltReason`, `abandonedWork`, `nondeterminism`. |
-| `replay(scenario, trace, options?)` | Replays a trace; `replayed` or `replay_diverged` with a machine-readable `divergence`. |
-| `validateTrace(value)` | Structural validation of a schema-1 trace; throws `InvalidTraceError`. |
-| `leavesAbandonedWork(trace)` | Whether a run left actor work the engine could not settle. |
+| `explore(scenario, options?)` | Explores schedules depth-first. Options: `maxSchedules` (default 1000), `maxSteps` (100), `stepTimeoutMs` (10000), `stopOnFailure` (`false`). The result has `complete`, `failures`, `outcomes`, `limitReached`, `haltReason`, `abandonedWork` and `nondeterminism`. |
+| `replay(scenario, trace, options?)` | Replays a trace. Returns `replayed`, or `replay_diverged` with a `divergence` describing why. |
+| `validateTrace(value)` | Checks the structure of a trace; throws `InvalidTraceError`. |
+| `leavesAbandonedWork(trace)` | Whether the run left actor work that the engine could not settle. |
 | `InvalidTraceError`, `ExecutionError`, `DEFAULT_STEP_TIMEOUT_MS` | Errors and constants. |
-| `Trace`, `ExploreResult`, `ReplayResult`, `ReplayDivergence`, ... | Types. |
+| `Trace`, `ExploreResult`, `ReplayResult`, `ReplayDivergence`, … | Types. |
 
-`complete: true` means every modeled interleaving was explored within the
-configured bounds — not that the application is correct outside that model.
-Requires Node.js 22.18 or later. See the
-[project documentation](https://github.com/Aliloraf/parallel#readme).
+`complete: true` means every interleaving of the checkpoints was explored within the bounds, not that the code is correct outside that model. Requires Node.js 22.18 or later. See the [documentation](https://github.com/Aliloraf/parallel#documentation) for the exact semantics.
 
-Licensed under Apache-2.0.
+Apache License 2.0.
