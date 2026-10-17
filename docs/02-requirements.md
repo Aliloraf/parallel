@@ -5,7 +5,7 @@
 **Date:** 2026-10-17  
 **Project:** Parallel  
 **Initial release:** Core simulation engine (MVP / v0.1)  
-**Status:** Draft requirements; initial prototype in progress (v0.1 not complete)
+**Status:** Draft. Most v0.1 requirements are implemented; known gaps are listed in section 14.
 
 ---
 
@@ -139,7 +139,7 @@ The following requirements are mandatory for v0.1 unless noted otherwise. Every 
 
 ### 6.5 CLI and Integration
 
-**FR-021 — Local command-line use.** A CLI MUST provide commands to run a scenario and replay an exported trace. A command name such as `parallel test` / `parallel replay` is provisional pending package-name and command collision checks.
+**FR-021 — Local command-line use.** A CLI MUST provide commands to run a scenario and replay an exported trace. The command is `parallel-sim` (`parallel-sim test`, `parallel-sim replay`), chosen because `parallel` collides with existing tools.
 
 **FR-022 — Process exit status.** The CLI MUST exit successfully only if the run completed without detected failures or execution errors; detected failures and incomplete/error conditions MUST use non-zero exit statuses, documented for CI use.
 
@@ -171,44 +171,48 @@ The following requirements are mandatory for v0.1 unless noted otherwise. Every 
 
 ## 8. Conceptual Inputs and Outputs
 
-### 8.1 Scenario input (conceptual API)
+### 8.1 Scenario input
 
-The following illustrates intended behavior; the SDK syntax is **not yet finalized**:
+The implemented SDK (see [06-writing-scenarios.md](06-writing-scenarios.md)):
 
 ```ts
-const scenario = defineScenario({
-  name: "inventory-oversell",
-  createState: () => ({ stock: 1, successfulPurchases: 0 }),
-  actors: {
-    customerA: purchase,
-    customerB: purchase,
-  },
-  invariants: [
-    state => state.successfulPurchases <= 1,
-  ],
+const purchase = async ({ state, checkpoint }: StepContext<State>) => {
+  await checkpoint('read-stock');
+  const available = state.stock;
+  await checkpoint('commit');
+  if (available > 0) { state.stock = available - 1; state.sold++; }
+};
+
+export default defineScenario<State>({
+  name: 'last-item',
+  createState: () => ({ stock: 1, sold: 0 }),
+  actors: [{ id: 'alice', run: purchase }, { id: 'bob', run: purchase }],
+  invariants: [{ name: 'no-overselling', check: ({ sold }) => sold <= 1 }],
 });
 ```
 
-The `purchase` operation will use scheduler-controlled checkpoints before modeled read/write steps. The engine will not infer these scheduling points automatically.
+The engine does not infer scheduling points; actors declare them with `checkpoint()`.
 
-### 8.2 Failure report (conceptual output)
+### 8.2 Failure report
+
+The CLI's human-readable report for the scenario above (`parallel-sim test last-item.ts --trace-out traces/last-item.json`). Without `describeFailure`, the violation shows a default message:
 
 ```text
-Scenario: inventory-oversell
-Status: INVARIANT FAILED
-Initial stock: 1
+Scenario: last-item
+Schedules explored: 6
+Failures: 4
+Exploration complete: true
 
-Schedule:
-  1. customerA reads stock = 1
-  2. customerB reads stock = 1
-  3. customerA completes purchase
-  4. customerB completes purchase
-
-Violation: successfulPurchases <= 1
-Observed: 2
-Trace: traces/inventory-oversell-failure.json
-Replay: <cli> replay traces/inventory-oversell-failure.json
+First failure:
+  1. bob: read-stock
+  2. alice: read-stock
+  3. alice: commit
+  4. bob: commit
+  VIOLATION no-overselling: Invariant "no-overselling" returned false
+Saved trace: /path/to/traces/last-item.json
 ```
+
+`--json` produces the same information in machine-readable form; `parallel-sim replay <trace> <scenario>` replays a saved trace.
 
 The trace MUST distinguish recorded scheduling decisions from optional explanatory application events; it must not invent operations or claim to have observed uninstrumented behavior.
 
@@ -261,21 +265,29 @@ Version numbers here are indicative, not release commitments. Future scope will 
 
 **C-01 — Scope constraint:** The MVP must remain an engine-first, local TypeScript project. No dashboard, cloud infrastructure, or AI layer may be treated as a prerequisite to acceptance.
 
-## 12. Open Design Decisions
+## 12. Design Decisions
 
-These decisions belong in the architecture document and must be settled before the corresponding implementation work:
+These were open when this document was first drafted. Their current status:
 
-1. How will actors be resumed at the beginning and at each checkpoint while preventing unintended progress?
-2. What exact SDK API makes read/write atomic segments visible to the scheduler?
-3. Which exploration strategy will enumerate bounded schedules first (e.g., depth-first search)?
-4. How will the engine identify logically identical states or redundant schedules, if at all?
-5. What trace schema and compatibility policy will support reliable replay?
-6. What guarantees can the engine make about timeout, deadlock, and external asynchronous work? *(Stalls and cancellation limits: see `03-execution-lifecycle.md`. Deterministic deadlock detection remains open.)*
-7. What CLI executable and package namespace avoid collisions with existing “parallel” tools?
+1. *Resuming actors without unintended progress.* Decided: each actor runs until it is paused at a checkpoint or finished, confirmed across a macrotask turn, before the scheduler resumes exactly one actor. See [03-execution-lifecycle.md](03-execution-lifecycle.md).
+2. *SDK API for atomic segments.* Decided: `await checkpoint(name)`; code between two checkpoints is one atomic segment.
+3. *Exploration strategy.* Decided: stateless depth-first search over checkpoint decisions, re-executing each schedule from fresh state.
+4. *Identifying redundant schedules.* Open. No state comparison or schedule reduction is implemented.
+5. *Trace schema and compatibility.* Decided for schema version 1: optional fields are added compatibly, traces are validated structurally, and unsupported versions are reported explicitly. See [04-nondeterminism-and-replay.md](04-nondeterminism-and-replay.md).
+6. *Guarantees about timeouts, deadlock and external asynchronous work.* Partly decided: stalls are detected with a wall-clock step timeout and cancellation is cooperative ([03-execution-lifecycle.md](03-execution-lifecycle.md)). Deterministic deadlock detection is open.
+7. *CLI executable and package namespace.* Decided: the `@aliloraf/parallel-sdk`, `-engine` and `-cli` packages and the `parallel-sim` command ([05-packaging.md](05-packaging.md)).
 
 ## 13. Definition of Done
 
 **Parallel v0.1 is done when** all mandatory functional requirements, all applicable non-functional requirements, and every acceptance criterion in Section 9 have been demonstrated through automated tests and documented examples. Any deviation must be recorded explicitly, and incomplete coverage must not be described as success.
+
+## 14. Implementation Status
+
+Known gaps against the mandatory requirements of v0.1:
+
+- **FR-003:** Code before an actor's first checkpoint runs as soon as a schedule starts, in actor declaration order, before the scheduler makes any decision. Scenarios work around this by starting actors with a checkpoint.
+- **NFR-006:** Strict type checking is enforced, but there is no automated linting or formatting yet.
+- **NFR-009:** Tests run in CI on Ubuntu and Windows. macOS is not tested.
 
 ---
 

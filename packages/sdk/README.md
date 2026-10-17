@@ -1,17 +1,8 @@
 # @aliloraf/parallel-sdk
 
-Scenario API for **Parallel**, a deterministic concurrency testing engine for
-TypeScript and Node.js. A scenario declares fresh initial state, concurrent
-actors that pause at named checkpoints, and invariants that must hold however
-the actors interleave.
+The scenario API for [Parallel](https://github.com/Aliloraf/parallel), which tests asynchronous TypeScript code for race conditions by running it under every ordering of the checkpoints you mark. A scenario has fresh initial state, two or more actors that pause at named checkpoints, and invariants that must hold however the actors interleave.
 
-> **Not yet published.** This package is prepared for its first npm release (0.1.0) but is not on npm yet. Until then, install it from a local build: see [Install from a local build](https://github.com/Aliloraf/parallel#install-from-a-local-build-until-the-first-npm-release).
-
-Once published:
-
-```bash
-npm install --save-dev @aliloraf/parallel-sdk @aliloraf/parallel-cli
-```
+> Not published yet. Version 0.1.0 is ready but not on npm; until it is, [install it from a local build](https://github.com/Aliloraf/parallel#installation). After the release: `npm install --save-dev @aliloraf/parallel-sdk @aliloraf/parallel-cli`.
 
 ```ts
 import { defineScenario } from '@aliloraf/parallel-sdk';
@@ -37,18 +28,16 @@ export default defineScenario<State>({
 });
 ```
 
-Run it with `npx parallel-sim test last-item.ts`.
+Run it with `npx --no parallel-sim test last-item.ts` once `@aliloraf/parallel-cli` is installed, or programmatically with `@aliloraf/parallel-engine`.
 
 ## API
 
-| Export | Purpose |
+| Export | Description |
 |---|---|
-| `defineScenario(scenario)` | Validates and returns a scenario (unique actor IDs, at least two actors, at least one invariant). |
-| `SimulationCancelledError` | The error a paused actor receives when its run is closed; also the reason of an aborted `context.signal`. |
+| `defineScenario(scenario)` | Checks a scenario (a name, at least two actors with unique ids, at least one invariant with a unique name) and returns it. |
+| `SimulationCancelledError` | Rejects pending checkpoints when a run is closed; also the reason of the aborted `context.signal`. |
 | `Scenario`, `Actor`, `Invariant`, `StepContext` | Types. `StepContext` gives each actor `state`, `checkpoint(name)` and `signal`. |
 
-Only code between checkpoints runs as one indivisible step; Parallel does not
-interleave anything it does not control. Requires Node.js 22.18 or later.
-See the [project documentation](https://github.com/Aliloraf/parallel#readme).
+Code between two checkpoints runs as one step; Parallel only interleaves the checkpoints. Requires Node.js 22.18 or later. [Writing scenarios](https://github.com/Aliloraf/parallel/blob/main/docs/06-writing-scenarios.md) explains how to choose checkpoints and test existing code.
 
-Licensed under Apache-2.0.
+Apache License 2.0.

@@ -1,165 +1,64 @@
-# Parallel — Packaging, External Usage and Publishing
+# Packaging and publishing
 
-**Status:** Packages for version 0.1.0 are built, tested and prepared for publication. **Nothing has been published to npm yet**; until the first release, install from local tarballs as described in the README.
+Version 0.1.0 of the three packages is built, tested and ready to publish, but nothing has been published to npm yet. Until it is, users install from locally built tarballs, as the [README](../README.md#installation) describes. This document explains how the packages are put together, how that is verified, and what to do when publishing.
 
-## 1. Package architecture
-
-The repository is an npm workspace. Its private root package holds development
-tooling only. It contains three published packages:
+## Packages
 
 | Package | Depends on | Exports |
 |---|---|---|
-| `@aliloraf/parallel-sdk` | — | `.`: `defineScenario`, `SimulationCancelledError`, `Scenario`, `Actor`, `Invariant`, `StepContext` |
-| `@aliloraf/parallel-engine` | peer: sdk `^0.1.0` | `.`: `explore`, `replay`, `validateTrace`, `leavesAbandonedWork`, `InvalidTraceError`, `ExecutionError`, `DEFAULT_STEP_TIMEOUT_MS`, all trace and result types |
-| `@aliloraf/parallel-cli` | engine `0.1.0`; peer: sdk `^0.1.0` | bin `parallel-sim`; no importable modules |
+| `@aliloraf/parallel-sdk` | nothing | `defineScenario`, `SimulationCancelledError`, and the types `Scenario`, `Actor`, `Invariant`, `StepContext` |
+| `@aliloraf/parallel-engine` | peer: sdk `^0.1.0` | `explore`, `replay`, `validateTrace`, `leavesAbandonedWork`, `InvalidTraceError`, `ExecutionError`, `DEFAULT_STEP_TIMEOUT_MS`, and the trace and result types |
+| `@aliloraf/parallel-cli` | engine `0.1.0`; peer: sdk `^0.1.0` | the `parallel-sim` command; nothing importable |
 
-Design rules:
+The engine and the CLI take the SDK as a peer dependency so that scenarios, engine and CLI share a single copy of it; with regular dependencies, a version mismatch could install two copies, and `instanceof SimulationCancelledError` would then fail in user code. npm installs missing peers automatically. All three packages share one version, and the CLI pins the engine exactly.
 
-- **One SDK copy.** Engine and CLI take the SDK as a *peer* dependency, so
-  scenarios, the engine and the CLI share one copy (npm installs missing peers
-  automatically). This keeps `instanceof SimulationCancelledError` reliable in
-  user code. A regular dependency could install two copies when versions
-  differ.
-- **Lockstep versions.** All packages share one version. The CLI pins the
-  engine exactly.
-- **Explicit public surface.** Each `exports` map lists only `.` (libraries)
-  and `./package.json`. Internal modules such as the engine's scheduling
-  history, and `dist/` paths in general, cannot be imported
-  (`ERR_PACKAGE_PATH_NOT_EXPORTED`).
-- **Self-contained tarballs.** Exports use only the `types` and `default`
-  conditions, and every target is in the tarball. There is no
-  development-only condition pointing at unpublished sources. Source maps embed
-  their sources (`inlineSources`), so they reference nothing outside the
-  package.
-- **No runtime dependencies, no install scripts.** Packages ship as ES
-  modules. CommonJS callers can `require()` them on Node.js 22.12 and later,
-  since nothing uses top-level `await`.
+Each package's `exports` map contains only its entry point (`.`, for the two libraries) and `./package.json`. Everything else, including the engine's `history.js` and all `dist/` paths, fails to import with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
-## 2. Build and development
+The published files are `package.json`, `README.md`, `LICENSE` and `dist/` (JavaScript, type declarations, and source maps with their sources inlined, so they don't reference files outside the package). Exports only use the `types` and `default` conditions, and every target exists in the tarball. The packages have no runtime dependencies besides each other and no install scripts. They are ES modules; CommonJS code can `require()` them, because they don't use top-level `await`.
 
-- `tsconfig.base.json` holds the shared compiler options. Two of them enforce
-  the runtime model:
-  - `erasableSyntaxOnly` rejects syntax that Node.js cannot strip.
-  - `rewriteRelativeImportExtensions` turns source imports such as `./x.ts`
-    into `./x.js` in the build output.
-- Each package has a composite `tsconfig.json` with project references.
-  `npm run build` (`tsc -b packages/cli`) builds all three into `dist/`:
-  JavaScript, declarations and source maps.
-- Tests and examples import packages **by name**, exactly as consumers do.
-  Inside the repository, those imports resolve through workspace links to the
-  built `dist/`. `npm test`, `npm run typecheck` and the demo scripts therefore
-  build first. Incremental builds keep this quick.
-- Package internals are tested by path (for example
-  `packages/engine/dist/history.js`). That is possible only inside the
-  repository.
+How the workspace builds and how tests use the built packages is described in [CONTRIBUTING.md](../CONTRIBUTING.md#how-the-build-and-tests-fit-together).
 
-## 3. External usage
+## Loading TypeScript scenarios
 
-After the first release (until then, install the three local tarballs as
-described in the README):
+The CLI imports scenario files with Node.js's own module loader. Since Node.js 22.18.0, the loader strips TypeScript types by default, but only for files outside `node_modules`. That is why the packages ship compiled JavaScript, and why user scenarios need no build step and no TypeScript dependency, as long as they follow the rules listed in [writing scenarios](06-writing-scenarios.md#typescript).
 
-```bash
-npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk
-npx parallel-sim test scenarios/last-item.ts --trace-out traces/last-item.json
-npx parallel-sim replay traces/last-item.json scenarios/last-item.ts
-```
+When loading fails, the CLI replaces Node.js's error with an explanation for three cases: type stripping unavailable (`ERR_UNKNOWN_FILE_EXTENSION` for a `.ts` file), syntax that can't be stripped (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`), and TypeScript files inside `node_modules` (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`).
 
-For programmatic use, also install `@aliloraf/parallel-engine`. The README
-has complete examples, and the integration tests run them from the installed
-packages.
+## Verification
 
-### TypeScript scenarios
+`npm run test:integration` runs in CI on Ubuntu and Windows. It packs the real tarballs with `npm pack --workspaces`, installs them offline into a new project outside the repository, so no workspace links are involved, and then checks, using only what was installed:
 
-The CLI imports the scenario module with Node.js's own loader. Type stripping
-is enabled by default from Node.js 22.18.0, and it applies to files outside
-`node_modules`. That gives no build step and no TypeScript dependency, but
-imposes Node.js's rules:
+- The tarball contents, against an allowlist (`package.json`, `README.md`, `LICENSE`, `dist/**/*.js`, `*.d.ts`, `*.js.map`).
+- That every `exports`, `types` and `bin` target exists and no other export conditions are used.
+- The manifests: license, Node.js version, no scripts, no external dependencies, a single installed copy of the SDK.
+- The `parallel-sim` command, run through npm's bin resolution (the `.cmd` shim on Windows): `--version`, `--help`, `.ts`, `.mts` and `.mjs` scenarios, scenarios importing application TypeScript, trace export and replay, the built-in demos, and the two loading errors.
+- ESM and CommonJS consumers, and that internal modules can't be imported.
+- A strict `tsc` check of a consumer project against the shipped declarations, including that a type error is rejected.
+- The code examples from the READMEs and from [writing scenarios](06-writing-scenarios.md), extracted and run.
 
-- erasable syntax only: no `enum`, `namespace` or constructor parameter
-  properties;
-- `import type` for type-only imports;
-- explicit `.ts` extensions on relative imports.
+## Compatibility
 
-The CLI translates the relevant loader errors into actionable messages:
-
-- type stripping unavailable (`ERR_UNKNOWN_FILE_EXTENSION`);
-- unsupported syntax (`ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`);
-- TypeScript inside `node_modules`.
-
-Escape hatches:
-
-- `.js` and `.mjs` scenarios;
-- a user-supplied loader, e.g. `NODE_OPTIONS=--import=tsx`;
-- calling the engine from a test runner that compiles TypeScript itself
-  (Vitest, Jest).
-
-## 4. Verification
-
-`npm run test:integration` (in CI on Ubuntu and Windows) does the following:
-
-1. builds and packs the real tarballs (`npm pack --workspaces`);
-2. installs them **offline** into a fresh project outside the repository, so
-   no workspace links are involved;
-3. checks, through the installed packages only:
-   - tarball contents, against an allowlist of `package.json`, `README.md`,
-     `LICENSE` and `dist/**/*.{js,d.ts,js.map}`;
-   - that every export, `types` and `bin` target exists, with no other export
-     conditions;
-   - manifest fields: license, engines, no scripts, no external dependencies;
-   - a single SDK copy;
-   - the `parallel-sim` bin, run through npm's bin resolution (the `.cmd` shim
-     on Windows): `--version`, `--help`, `.ts`/`.mts`/`.mjs` scenarios,
-     application TypeScript imports, trace export and replay, and the
-     built-in demos;
-   - the stripping-unavailable and unsupported-syntax errors;
-   - ESM and CommonJS consumers;
-   - blocked deep imports;
-   - a strict `tsc` check of a consumer project against the shipped
-     declarations, including that misuse is rejected;
-   - the README examples, extracted and executed.
-
-## 5. Compatibility
-
-- Node.js `>=22.18.0` (`engines` in every package). CI runs 22.18.0, the
-  latest 22.x and 24.x.
-- The trace format is unchanged: schema version 1. Earlier traces replay as
-  before (`tests/fixtures/traces`).
-- Repository commands (`npm test`, `npm run demo`, `npm run demo:fixed`) keep
-  working. Running `node packages/cli/src/cli.ts` directly is replaced by
-  `npm run cli -- …` inside the repository, and by `parallel-sim` elsewhere.
+- Node.js 22.18.0 or later; every package declares it in `engines`. CI tests 22.18.0, the latest 22.x and 24.x.
+- The trace format is schema version 1 and stays readable; see [nondeterminism and replay](04-nondeterminism-and-replay.md#validation-and-compatibility).
 - Removed before the first release: the unused, deprecated `RunResult` type.
 
-## 6. Security
+## Security
 
-- **Scenario files execute as trusted code.** The CLI imports them with full
-  process privileges and no sandbox.
-- Traces can contain application data, so keep them out of version control
-  where that matters.
-- **`npx` name resolution.** `npx parallel-sim` runs the locally installed
-  CLI. In a project without it, npx would offer to download an unscoped
-  package named `parallel-sim` from the registry, a name Parallel does not
-  own. Use `npx --no parallel-sim` in CI. Reserving the unscoped name is on the
-  publishing checklist.
-- The tarball allowlist test prevents local files (tests, fixtures, editor or
-  tool configuration) from being published.
+- Scenario files are executed as trusted code, with the full privileges of the process and no sandbox.
+- Traces can contain application data from checkpoint names, invariant messages and errors.
+- `npx parallel-sim` runs the locally installed CLI. In a project without it, npx would offer to install an unscoped package named `parallel-sim` from the registry, a name this project doesn't own. The documentation therefore uses `npx --no parallel-sim`, which fails instead of installing (it may still look the name up on the registry), and reserving the name is part of the checklist below.
+- The tarball allowlist in the integration tests keeps tests, fixtures and local configuration files out of published packages.
 
-## 7. Publishing checklist (not yet performed)
+## Publishing checklist
 
-1. Confirm `npm whoami` is `aliloraf`, or that an npm organization named
-   `aliloraf` exists and you can publish to it. Scoped packages can only be
-   published by the scope's owner.
+Not done yet. For the first release:
+
+1. Check that `npm whoami` prints `aliloraf`, or that an npm organization named `aliloraf` exists and you can publish to it. Only the owner of a scope can publish packages in it.
 2. Enable two-factor authentication for publishing on the npm account.
-3. Decide whether to reserve the unscoped name `parallel-sim`, for example
-   with a minimal package that only points to `@aliloraf/parallel-cli`.
-4. Run `npm ci && npm test && npm run test:integration`, then
-   `npm publish --workspaces --dry-run` and review the file lists.
-5. Publish in dependency order (sdk, engine, cli) with
-   `npm publish --workspace <name>`. Prefer publishing from CI with
-   `--provenance` (GitHub Actions OIDC).
-6. Remove the "Not yet published" notes from the three package READMEs and
-   the README, and change the README install section to npm-first. The
-   package READMEs are what npm displays.
-7. Tag the release (`v0.1.0`) and update `CHANGELOG.md`.
+3. Decide whether to reserve the unscoped name `parallel-sim`, for example with a minimal package that points to `@aliloraf/parallel-cli`.
+4. Remove the "Not yet published" notes from the three package READMEs (npm shows them on the package pages), and change the README's installation section to install from npm.
+5. Run `npm ci`, `npm test` and `npm run test:integration`, then `npm publish --workspaces --dry-run`, and review the file lists.
+6. Publish in dependency order, sdk, engine, cli, with `npm publish --workspace <name>`. Publishing from CI with `--provenance` (GitHub Actions OIDC) is preferable to publishing from a laptop.
+7. Tag the release as `v0.1.0` and move the changelog entry out of "unreleased".
 
-Versioning follows semver. While the version is 0.x, breaking changes bump the
-minor version.
+Versions follow semantic versioning; while the version is 0.x, breaking changes increase the minor version.

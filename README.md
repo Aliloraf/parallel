@@ -1,82 +1,22 @@
 # Parallel
 
-**A local-first, deterministic concurrency testing engine for instrumented TypeScript programs.**
+Parallel finds race conditions in asynchronous TypeScript code. You mark the points where concurrent operations can interleave, and Parallel runs your scenario once for each ordering of those points (up to limits you can set), checks your invariants after each run, and saves any failing ordering as a trace you can replay deterministically.
 
-Parallel explores possible orderings of explicitly controlled asynchronous operations and checks user-defined invariants. Its first example demonstrates how two customers can both purchase the last item in stock.
+Status: version 0.1.0, pre-release. The packages are not on npm yet; see [Installation](#installation).
 
-> **Status: early, pre-1.0 (0.1.0).** The engine has a working scheduler, schedule exploration, invariant checking, traces, deterministic replay, stall detection, nondeterminism detection, and an installable CLI. The packages are not yet published to npm. Remaining SRS requirements are still planned.
+## Why
 
-## Packages
+Concurrency bugs depend on ordering. Two requests that each check stock and then buy the last item are fine one after the other, but both succeed if both checks run before either purchase. A normal test runs one ordering and passes. Running it a thousand times may or may not hit the bad one, and if it does, you can't easily reproduce it.
 
-These three packages are **prepared for publication but not yet published to npm**. Version 0.1.0 is unreleased (see [CHANGELOG.md](CHANGELOG.md)). Until the first release, install them from a local build, as described below.
+Parallel enumerates the orderings instead of hoping for them, and every failure it reports comes with the exact schedule that caused it.
 
-| Package | Contents |
-|---|---|
-| [`@aliloraf/parallel-sdk`](packages/sdk) | Scenario API: `defineScenario`, `SimulationCancelledError`, scenario types |
-| [`@aliloraf/parallel-engine`](packages/engine) | `explore`, `replay`, `validateTrace` and result/trace types, for programmatic use |
-| [`@aliloraf/parallel-cli`](packages/cli) | The `parallel-sim` command |
+## How it works
 
-All three have the same version and no runtime dependencies besides each other. The SDK is a peer dependency, so scenarios, the engine and the CLI share one copy of it.
+A scenario has three parts: a function that creates fresh state, two or more actors (async functions), and invariants over the final state. Inside an actor, `await checkpoint('name')` pauses until the scheduler lets that actor continue. Parallel explores the interleavings of checkpoints depth-first, restarting from fresh state for each one, and records the scheduling decisions of every run.
 
-## Requirements
+Only checkpoints are controlled. Code between two checkpoints runs as a single step, and Parallel does not see timers, I/O or promises you haven't marked. A passing result means no invariant failed in the orderings Parallel could explore, not that the code is race-free.
 
-- Node.js **22.18.0 or later**, which strips TypeScript types natively, so scenarios run without a build step
-- npm
-
-## Use Parallel in your project
-
-### Install from a local build (until the first npm release)
-
-Build and pack the three packages from a checkout of this repository, then install the tarballs into your project. Install all three, even if you only use the CLI: the CLI depends on the engine, and npm cannot fetch an unpublished engine from the registry. `npm pack` does not create its destination directory, so create it first.
-
-macOS / Linux (bash or zsh):
-
-```bash
-git clone https://github.com/Aliloraf/parallel.git
-cd parallel
-npm ci
-npm run build
-mkdir -p "$HOME/parallel-packages"
-npm pack --workspaces --pack-destination "$HOME/parallel-packages"
-
-cd /path/to/your-project
-npm install --save-dev \
-  "$HOME/parallel-packages/aliloraf-parallel-sdk-0.1.0.tgz" \
-  "$HOME/parallel-packages/aliloraf-parallel-engine-0.1.0.tgz" \
-  "$HOME/parallel-packages/aliloraf-parallel-cli-0.1.0.tgz"
-```
-
-Windows (PowerShell):
-
-```powershell
-git clone https://github.com/Aliloraf/parallel.git
-cd parallel
-npm ci
-npm run build
-New-Item -ItemType Directory -Force "$HOME\parallel-packages" | Out-Null
-npm pack --workspaces --pack-destination "$HOME\parallel-packages"
-
-cd C:\path\to\your-project
-npm install --save-dev `
-  "$HOME\parallel-packages\aliloraf-parallel-sdk-0.1.0.tgz" `
-  "$HOME\parallel-packages\aliloraf-parallel-engine-0.1.0.tgz" `
-  "$HOME\parallel-packages\aliloraf-parallel-cli-0.1.0.tgz"
-```
-
-Your project must use Node.js 22.18.0 or later. npm records the tarball paths in your `package.json` as `file:` dependencies; re-run `npm install` after rebuilding to pick up changes.
-
-### Install from npm (after the first release)
-
-Once 0.1.0 is published, this will be:
-
-```bash
-npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk
-# add @aliloraf/parallel-engine for programmatic use
-```
-
-### Write a scenario
-
-A scenario declares fresh initial state, actors that pause at named checkpoints, and invariants that must hold in every interleaving:
+## Example
 
 ```ts
 // scenarios/last-item.ts
@@ -107,22 +47,81 @@ export default defineScenario<State>({
 });
 ```
 
-### Run it, export a failure trace and replay it
+With the CLI installed in your project (see [Installation](#installation)):
 
-```bash
-npx parallel-sim test scenarios/last-item.ts
-npx parallel-sim test scenarios/last-item.ts --trace-out traces/last-item.json
-npx parallel-sim replay traces/last-item.json scenarios/last-item.ts
-npx parallel-sim test scenarios/last-item.ts --json      # machine-readable summary
+```console
+$ npx --no parallel-sim test scenarios/last-item.ts
+Scenario: last-item
+Schedules explored: 6
+Failures: 4
+Exploration complete: true
+
+First failure:
+  1. bob: read-stock
+  2. alice: read-stock
+  3. alice: commit
+  4. bob: commit
+  VIOLATION no-overselling: sold 2 items, but only 1 was in stock
 ```
 
-`test` exits with status 1 because it finds the oversell. Replaying a known failure also exits with 1, which makes a saved trace usable as a CI regression check. Exit status 0 means exploration completed without failures. Status 2 means a usage error, an invalid scenario or trace, or an engine failure. Run `npx parallel-sim --help` for every option.
+Save the failure and replay it later, for example in CI after fixing the bug:
 
-> `npx` uses the locally installed `parallel-sim`. In a project where it is **not** installed, `npx parallel-sim` would try to download an unrelated package of that name from the npm registry. Install the CLI first, and use `npx --no parallel-sim` in CI to rule that out.
+```bash
+npx --no parallel-sim test scenarios/last-item.ts --trace-out traces/last-item.json
+npx --no parallel-sim replay traces/last-item.json scenarios/last-item.ts
+```
 
-### Use the engine programmatically
+## Installation
 
-With the engine installed (it is one of the three local tarballs; after the first release, `npm install --save-dev @aliloraf/parallel-engine`), run scenarios from any test runner:
+Parallel requires Node.js 22.18 or later, which runs TypeScript scenarios directly through its built-in type stripping.
+
+The packages are not published yet. Until the first release, build them from this repository and install the tarballs into your project. Install all three: the CLI depends on the engine, which npm can't fetch from the registry yet. `npm pack` won't create the destination directory, so create it first.
+
+On macOS or Linux:
+
+```bash
+git clone https://github.com/Aliloraf/parallel.git
+cd parallel
+npm ci
+npm run build
+mkdir -p "$HOME/parallel-packages"
+npm pack --workspaces --pack-destination "$HOME/parallel-packages"
+
+cd /path/to/your-project
+npm install --save-dev \
+  "$HOME/parallel-packages/aliloraf-parallel-sdk-0.1.0.tgz" \
+  "$HOME/parallel-packages/aliloraf-parallel-engine-0.1.0.tgz" \
+  "$HOME/parallel-packages/aliloraf-parallel-cli-0.1.0.tgz"
+```
+
+On Windows, in PowerShell:
+
+```powershell
+git clone https://github.com/Aliloraf/parallel.git
+cd parallel
+npm ci
+npm run build
+New-Item -ItemType Directory -Force "$HOME\parallel-packages" | Out-Null
+npm pack --workspaces --pack-destination "$HOME\parallel-packages"
+
+cd C:\path\to\your-project
+npm install --save-dev `
+  "$HOME\parallel-packages\aliloraf-parallel-sdk-0.1.0.tgz" `
+  "$HOME\parallel-packages\aliloraf-parallel-engine-0.1.0.tgz" `
+  "$HOME\parallel-packages\aliloraf-parallel-cli-0.1.0.tgz"
+```
+
+npm records the tarballs as `file:` dependencies; run `npm install` again after rebuilding. Once 0.1.0 is published, installing will be `npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk`.
+
+## Packages
+
+| Package | What it contains |
+|---|---|
+| [`@aliloraf/parallel-sdk`](packages/sdk) | `defineScenario`, `SimulationCancelledError` and the scenario types. Scenarios import only this. |
+| [`@aliloraf/parallel-engine`](packages/engine) | `explore`, `replay` and `validateTrace`, for running scenarios from your own code or test runner. |
+| [`@aliloraf/parallel-cli`](packages/cli) | The `parallel-sim` command. |
+
+The engine can run scenarios from any test runner:
 
 ```ts
 import assert from 'node:assert/strict';
@@ -138,121 +137,42 @@ test('finds and reproduces the oversell', async () => {
 });
 ```
 
-### TypeScript requirements
-
-Scenarios run on Node.js's built-in type stripping. That requires:
-
-- erasable syntax only: no `enum`, `namespace` or constructor parameter properties;
-- `import type` for type-only imports;
-- explicit `.ts` extensions on relative imports.
-
-Suggested `tsconfig.json` settings: `"module": "nodenext"`, `"verbatimModuleSyntax": true`, `"erasableSyntaxOnly": true`, `"allowImportingTsExtensions": true` and `"noEmit": true`. The CLI reports which rule a scenario broke. For code that can't meet them, register your own TypeScript loader: `NODE_OPTIONS=--import=tsx npx parallel-sim test ...`. `.js` and `.mjs` scenarios have no such constraints. The packages are ES modules and can also be `require()`d from CommonJS. See [docs/05-packaging.md](docs/05-packaging.md).
-
-## Develop Parallel
-
-```bash
-npm ci
-npm test                  # builds, then runs the unit and CLI tests
-npm run typecheck         # builds, then type-checks tests and examples
-npm run test:integration  # packs the packages and tests them from an independent project
-npm run demo              # exits 1: finds the inventory bug
-npm run demo:fixed        # exits 0
-```
-
-`npm run cli -- <args>` runs the repository's `parallel-sim` (built first):
-
-```bash
-npm run cli -- test inventory-buggy --trace-out traces/failure.json
-npm run cli -- replay traces/failure.json
-npm run cli -- test examples/counter/src/scenario.ts --json
-```
-
-The built-in demos `inventory-buggy` and `inventory-fixed` ship with the CLI. Traces are local files that may contain application-specific data; `traces/*.json` is ignored by Git.
-
-## How it works
-
-1. A scenario declares a `createState` factory, actor functions and invariants.
-2. Actors pause at `await checkpoint('name')` before taking the next controlled step.
-3. Parallel selects an actor to resume and records the decision.
-4. It restarts from fresh state to explore alternate scheduling decisions.
-5. It evaluates invariants after a run and can replay a failure by following saved decisions.
-
-**Important:** The engine controls *only* explicitly declared checkpoints. Work between checkpoints is effectively atomic as far as the scheduler is concerned. Unmanaged `await`, timers, network calls, randomness, or external I/O can invalidate repeatability. Importing a scenario **executes its code**: run only trusted scenarios. Parallel does **not** sandbox code or prove an arbitrary app is bug-free.
-
-The six expected interleavings of two actors with two checkpoints each are covered by automated tests.
-
-## Stalls, timeouts and cancellation
-
-If an actor doesn't reach its next checkpoint or finish within `stepTimeoutMs`
-(default 10 000 ms, CLI `--step-timeout MS`), Parallel reports the schedule as
-`stalled`, names the actor and its last checkpoint, and halts exploration. A
-stalled exploration is never reported as complete or passing.
-
-```bash
-npx parallel-sim test scenarios/my-scenario.ts --step-timeout 2000
-```
-
-Stall **detection is not cancellation**. When a run closes, Parallel aborts
-`context.signal` and rejects pending checkpoints with `SimulationCancelledError`.
-Actors that pass the signal to cancellable APIs (for example
-`fetch(url, { signal })`) can stop cleanly. Parallel cannot force arbitrary
-promises, I/O or synchronous code to stop. Work that does not cooperate is
-reported as abandoned (`abandonedWork: true`). In that case the CLI terminates
-the process after writing and flushing its report. Synchronous infinite loops
-can't be detected at all. The timeout uses wall-clock time and is not part of
-deterministic scheduling. See [docs/03-execution-lifecycle.md](docs/03-execution-lifecycle.md)
-for the actor states, teardown rules and trace fields.
-
-## Nondeterminism and replay
-
-Exploration re-runs the scenario from scratch for every schedule, so it relies
-on the scenario being deterministic at its checkpoints. When re-running a
-schedule prefix offers different eligible actors or checkpoints than the run
-that recorded it, Parallel halts with `haltReason: 'nondeterministic'`. It
-reports the expected and observed choices, keeps every outcome and failure
-found so far, and exits with status 1. This detection only covers differences
-visible at checkpoints. It does not prove a scenario deterministic.
-
-`Exploration complete: true` means every modeled interleaving was explored
-within the configured bounds. It does not mean the application is correct
-outside that model.
-
-`replay` validates the trace before running it. Invalid JSON and invalid traces
-exit with status 2, and the message names the bad field. A replay that can't
-reproduce the trace prints a machine-readable `divergence`. Its `kind` is one
-of `decision_not_eligible`, `ended_early`, `continued`, `result_mismatch`,
-`scenario_mismatch` or `unsupported_schema`. Traces that hit the step limit
-replay correctly. See
-[docs/04-nondeterminism-and-replay.md](docs/04-nondeterminism-and-replay.md).
-
-## Repository layout
+## The `parallel-sim` command
 
 ```text
-packages/sdk/           @aliloraf/parallel-sdk: scenario definitions and the cooperative checkpoint API
-packages/engine/        @aliloraf/parallel-engine: exploration, trace generation, validation and replay
-packages/cli/           @aliloraf/parallel-cli: the parallel-sim command and its built-in inventory demos
-examples/counter/       A lost-update scenario written as an external project would write it
-tests/                  Unit and CLI tests; tests/integration/ tests the packed npm tarballs
-tests/fixtures/         Scenarios and fixed traces from earlier versions, for compatibility tests
-docs/01-parallel.md     Project vision
-docs/02-requirements.md Draft SRS, target requirements for v0.1
-docs/03-execution-lifecycle.md       Actor states, stall detection, cancellation limits
-docs/04-nondeterminism-and-replay.md Nondeterminism detection, completeness, replay divergence
-docs/05-packaging.md                 Package architecture, external usage, publishing checklist
+parallel-sim test <scenario> [--json] [--max-schedules N] [--step-timeout MS] [--trace-out PATH]
+parallel-sim replay <trace> [scenario] [--step-timeout MS]
+parallel-sim --help | --version
 ```
 
-Each package is built with `tsc -b` into its `dist/` directory: JavaScript, type declarations and source maps. Only `dist/`, `README.md`, `LICENSE` and `package.json` are published.
+A scenario is a `.ts`, `.mts`, `.js` or `.mjs` file whose default export (or `scenario` export) is a scenario, or one of the built-in demos `inventory-buggy` and `inventory-fixed`. `--trace-out` writes the first failing schedule, and nothing if there is no failure. `replay` needs the scenario file again unless the trace is from a built-in demo.
 
-## Next steps
+The exit status is 0 when exploration completed without failures (or a replayed trace passed), 1 when it found failures or could not complete, and 2 for usage errors and invalid scenarios or traces. Replaying a saved failure therefore exits with 1 as long as the bug is still there.
 
-- First npm release of the three packages (see the publishing checklist in [docs/05-packaging.md](docs/05-packaging.md)).
-- CLI argument parsing and a distinct exit code for replay divergence and nondeterminism.
-- Trace format v2: record choice points and run configuration so replay can detect changed choices, with a migration path from v1.
-- Run actors in worker threads to enable forced cancellation and detection of synchronous hangs.
-- Investigate schedule-reduction techniques after correctness is demonstrated.
+The examples use `npx --no`, which runs the CLI installed in the current project and fails instead of installing anything when it isn't there. Without `--no`, npx would offer to install a registry package named `parallel-sim`, which is not part of Parallel. With `--no`, options that come before a subcommand need a `--`: `npx --no parallel-sim -- --help`.
 
-## License and naming
+TypeScript scenarios have to follow Node.js's type-stripping rules: no `enum`, `namespace` or constructor parameter properties, `import type` for type-only imports, and explicit `.ts` extensions in relative imports. [Writing scenarios](docs/06-writing-scenarios.md) covers this, how to choose checkpoints, and how to test existing code.
 
-Parallel is licensed under the [Apache License 2.0](LICENSE).
+## Limitations
 
-`Parallel` is a working project name. The npm packages are published under the `@aliloraf` scope, and the command is `parallel-sim`, because the unscoped name `parallel` and the `parallel` command are already used by other software (including GNU Parallel). Check trademarks before using the name commercially.
+- Only marked checkpoints are interleaved. Parallel does not control the event loop, timers, network or databases, and the results only cover the model you wrote.
+- The number of orderings grows quickly (three actors with three checkpoints each already have 1,680), and there is no schedule reduction yet. Exploration stops at configurable bounds and says so when it does.
+- An actor that doesn't reach its next checkpoint within a time limit (10 seconds by default) is reported as stalled. Parallel can ask actors to stop through an `AbortSignal`, but it cannot cancel arbitrary promises or synchronous code. See [execution lifecycle](docs/03-execution-lifecycle.md).
+- Exploration assumes the scenario behaves the same every time it runs. Parallel detects differences at checkpoints and stops, but it cannot prove a scenario deterministic. See [nondeterminism and replay](docs/04-nondeterminism-and-replay.md).
+- Scenario files run as trusted code, without a sandbox.
+- The packages are ES modules (CommonJS code can still `require()` them) and need Node.js 22.18 or later.
+
+## Documentation
+
+- [Writing scenarios](docs/06-writing-scenarios.md): checkpoints, state, invariants, testing real code, common mistakes
+- [Execution lifecycle](docs/03-execution-lifecycle.md): actor states, stall detection, cancellation
+- [Nondeterminism and replay](docs/04-nondeterminism-and-replay.md): what "complete" means, replay divergence, trace compatibility
+- [Packaging](docs/05-packaging.md): package structure, external usage, publishing checklist
+- [Requirements](docs/02-requirements.md) and [project vision and roadmap](docs/01-parallel.md)
+- [Contributing](CONTRIBUTING.md) and [changelog](CHANGELOG.md)
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE).
+
+"Parallel" is a working name. The packages are scoped (`@aliloraf/…`) and the command is `parallel-sim`, because `parallel` is already taken on npm and as a command (GNU Parallel).
