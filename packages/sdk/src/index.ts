@@ -2,9 +2,24 @@
 export type StepContext<State> = {
   /** Scenario-local shared state, recreated before every schedule. */
   readonly state: State;
-  /** Pauses this actor until the scheduler selects it. */
+  /**
+   * Pauses this actor until the scheduler selects it. Rejects with
+   * `SimulationCancelledError` once the run has been closed.
+   */
   checkpoint(name: string): Promise<void>;
+  /**
+   * Aborted, with a `SimulationCancelledError` reason, when the run is closed:
+   * after it finishes, hits a bound, diverges, or stalls. Pass it to cancellable
+   * APIs (e.g. `fetch(url, { signal })`) so unmanaged work can stop cooperatively.
+   * The engine cannot force arbitrary promises or synchronous code to stop.
+   */
+  readonly signal: AbortSignal;
 };
+
+/** Delivered to actors whose run is closed while they are paused or still active. */
+export class SimulationCancelledError extends Error {
+  override name = 'SimulationCancelledError';
+}
 
 export type Actor<State> = {
   readonly id: string;
