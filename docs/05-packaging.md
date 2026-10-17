@@ -31,7 +31,7 @@ When loading fails, the CLI replaces Node.js's error with an explanation for thr
 - The tarball contents, against an allowlist (`package.json`, `README.md`, `LICENSE`, `dist/**/*.js`, `*.d.ts`, `*.js.map`).
 - That every `exports`, `types` and `bin` target exists and no other export conditions are used.
 - The manifests: license, Node.js version, no scripts, no external dependencies, a single installed copy of the SDK.
-- The `parallel-sim` command, run through npm's bin resolution (the `.cmd` shim on Windows): `--version`, `--help`, `.ts`, `.mts` and `.mjs` scenarios, scenarios importing application TypeScript, trace export and replay, the built-in demos, and the two loading errors.
+- The `parallel-sim` command, run through npm's bin resolution (the `.cmd` shim on Windows): `--version`, `--help`, `.ts`, `.mts` and `.mjs` scenarios, scenarios importing application TypeScript, trace export and replay, the built-in demos, the two loading errors, and the exit-code and JSON-report contract, including `--json` output that stays parseable with a noisy scenario and `FORCE_COLOR=1`.
 - ESM and CommonJS consumers, and that internal modules can't be imported.
 - A strict `tsc` check of a consumer project against the shipped declarations, including that a type error is rejected.
 - The code examples from the READMEs and from [writing scenarios](06-writing-scenarios.md), extracted and run.

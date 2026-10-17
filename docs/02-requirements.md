@@ -200,19 +200,21 @@ The CLI's human-readable report for the scenario above (`parallel-sim test last-
 ```text
 Scenario: last-item
 Schedules explored: 6
-Failures: 4
+Failures: 4 (invariant_failed: 4)
 Exploration complete: true
 
-First failure:
+First failure (invariant_failed):
   1. bob: read-stock
   2. alice: read-stock
   3. alice: commit
   4. bob: commit
   VIOLATION no-overselling: Invariant "no-overselling" returned false
 Saved trace: /path/to/traces/last-item.json
+
+Result: failed
 ```
 
-`--json` produces the same information in machine-readable form; `parallel-sim replay <trace> <scenario>` replays a saved trace.
+`--json` produces the same information in machine-readable form; `parallel-sim replay <trace> <scenario>` replays a saved trace. Exit statuses are listed in the [CLI documentation](../packages/cli/README.md#exit-status).
 
 The trace MUST distinguish recorded scheduling decisions from optional explanatory application events; it must not invent operations or claim to have observed uninstrumented behavior.
 
