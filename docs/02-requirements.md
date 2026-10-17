@@ -113,7 +113,7 @@ The following requirements are mandatory for v0.1 unless noted otherwise. Every 
 
 **FR-010 — Execution bounds.** The engine MUST support a maximum number of explored schedules and a maximum number of controlled scheduling steps per execution. A run MUST report if either limit prevented completion. A wall-clock timeout MAY be added for safety but does not constitute deterministic scheduling.
 
-**FR-011 — Execution outcomes.** Each explored schedule MUST be classified as `passed`, `invariant_failed`, `actor_error`, or `incomplete` (for example, because a bound was hit). The engine MUST NOT count an incomplete run as passed.
+**FR-011 — Execution outcomes.** Each explored schedule MUST be classified as `passed`, `invariant_failed`, `actor_error`, `incomplete` (for example, because a bound was hit), or `stalled` (an actor neither reached a checkpoint nor finished within the wall-clock step budget). The engine MUST NOT count an incomplete or stalled run as passed, and MUST NOT report an exploration interrupted by a stall as exhaustive.
 
 ### 6.3 Invariants and Failure Detection
 
@@ -270,7 +270,7 @@ These decisions belong in the architecture document and must be settled before t
 3. Which exploration strategy will enumerate bounded schedules first (e.g., depth-first search)?
 4. How will the engine identify logically identical states or redundant schedules, if at all?
 5. What trace schema and compatibility policy will support reliable replay?
-6. What guarantees can the engine make about timeout, deadlock, and external asynchronous work?
+6. What guarantees can the engine make about timeout, deadlock, and external asynchronous work? *(Stalls and cancellation limits: see `03-execution-lifecycle.md`. Deterministic deadlock detection remains open.)*
 7. What CLI executable and package namespace avoid collisions with existing “parallel” tools?
 
 ## 13. Definition of Done

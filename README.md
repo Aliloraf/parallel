@@ -4,7 +4,7 @@
 
 Parallel explores possible orderings of explicitly controlled asynchronous operations and checks user-defined invariants. Its first example demonstrates how two customers can both purchase the last item in stock.
 
-> **Status: early proof of concept, not release v0.1.** The current prototype has a working scheduler, schedule exploration, traces, replay, a basic demo CLI and tests. Full scenario loading, general failure handling, and remaining SRS requirements are still planned.
+> **Status: early proof of concept, not release v0.1.** The current prototype has a working scheduler, schedule exploration, traces, replay, a basic CLI with custom scenario loading, stall detection, and tests. Remaining SRS requirements are still planned.
 
 ## Requirements
 
@@ -70,6 +70,28 @@ again when replaying a trace.
 
 **Important:** The engine controls *only* explicitly declared checkpoints. Work between checkpoints is effectively atomic as far as the scheduler is concerned. Unmanaged `await`, timers, network calls, randomness, or external I/O can invalidate repeatability or hang this prototype. Run only trusted scenarios. It does **not** sandbox code or prove an arbitrary app is bug-free.
 
+## Stalls, timeouts and cancellation
+
+If an actor doesn't reach its next checkpoint or finish within `stepTimeoutMs`
+(default 10 000 ms, CLI `--step-timeout MS`), Parallel reports the schedule as
+`stalled`, names the actor and its last checkpoint, and halts exploration. A
+stalled exploration is never reported as complete or passing.
+
+```bash
+node --experimental-strip-types packages/cli/src/cli.ts test ./my-scenario.ts --step-timeout 2000
+```
+
+Stall **detection is not cancellation**. When a run closes, Parallel aborts
+`context.signal` and rejects pending checkpoints with `SimulationCancelledError`.
+Actors that pass the signal to cancellable APIs (for example
+`fetch(url, { signal })`) can stop cleanly. Parallel cannot force arbitrary
+promises, I/O or synchronous code to stop. Work that does not cooperate is
+reported as abandoned (`abandonedWork: true`). In that case the CLI terminates
+the process after writing and flushing its report. Synchronous infinite loops
+can't be detected at all. The timeout uses wall-clock time and is not part of
+deterministic scheduling. See [docs/03-execution-lifecycle.md](docs/03-execution-lifecycle.md)
+for the actor states, teardown rules and trace fields.
+
 The six expected interleavings of two actors with two checkpoints each are covered by automated tests.
 
 ## Repository layout
@@ -81,12 +103,20 @@ packages/cli/src/        Local test / replay CLI (bundled example scenarios)
 examples/inventory/src/  Buggy and fixed inventory workflows
 tests/                   Automated tests
 docs/02-requirements.md  Draft SRS, target requirements for v0.1
+docs/03-execution-lifecycle.md  Actor states, stall detection, cancellation limits
 ```
 
 ## Next steps
 
+- **Next task: classify nondeterminism during exploration.** If a scenario
+  behaves differently when a schedule prefix is re-executed, `explore()`
+  currently rejects with a generic error. Instead it should return a
+  classified result, for example a `nondeterministic` halt that includes the
+  diverging step and its abandoned-work status. The CLI should apply its
+  abandoned-work termination boundary in that case. See
+  [docs/03-execution-lifecycle.md](docs/03-execution-lifecycle.md#5-detection-is-not-cancellation).
 - Package the CLI and SDK for installation outside this repository.
-- Define a robust cancellation/timeout contract for unmanaged asynchronous work.
+- Run actors in worker threads to enable forced cancellation and detection of synchronous hangs.
 - Cover additional error cases, divergence, and trace compatibility.
 - Add package boundaries, linting, and usage-focused SDK documentation.
 - Investigate schedule-reduction techniques after correctness is demonstrated.
