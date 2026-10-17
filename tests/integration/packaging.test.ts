@@ -196,7 +196,7 @@ test('parallel-sim exports a failure trace and replays it', () => {
   const tested = cli(['test', file, '--trace-out', tracePath]);
   assert.equal(tested.status, 1, tested.stderr);
   assert.match(tested.stdout, /VIOLATION both-increments: count is 1/);
-  const replayed = cli(['replay', tracePath, file]);
+  const replayed = cli(['replay', tracePath, file, '--json']);
   assert.equal(replayed.status, 1, replayed.stderr);
   const output = JSON.parse(replayed.stdout);
   assert.equal(output.status, 'replayed');
@@ -366,7 +366,7 @@ test('the code examples in the repository README work against the installed pack
   const tested = cli(['test', join(dir, 'scenarios', 'last-item.ts'), '--trace-out', tracePath]);
   assert.equal(tested.status, 1, tested.stderr);
   assert.match(tested.stdout, /VIOLATION no-overselling: sold 2 items, but only 1 was in stock/);
-  const replayed = cli(['replay', tracePath, join(dir, 'scenarios', 'last-item.ts')]);
+  const replayed = cli(['replay', tracePath, join(dir, 'scenarios', 'last-item.ts'), '--json']);
   assert.equal(replayed.status, 1, replayed.stderr);
   assert.equal(JSON.parse(replayed.stdout).status, 'replayed');
   const viaEngine = spawnSync(process.execPath, ['--test', 'last-item.test.ts'], { cwd: dir, encoding: 'utf8', timeout: 60_000 });
@@ -387,4 +387,42 @@ test('the example in the scenario-writing guide behaves as documented', () => {
   const result = cli(['test', join(dir, 'scenarios', 'withdraw.ts')]);
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stdout, /VIOLATION balance-matches: 2 withdrawals approved, balance is 20/);
+});
+
+test('the installed parallel-sim follows the exit-code and JSON contract', () => {
+  const dir = join(consumer, 'contract');
+  mkdirSync(dir, { recursive: true });
+  const scenario = (name: string, body: string, check = '() => true') => write(join('contract', `${name}.ts`), `import { defineScenario } from '@aliloraf/parallel-sdk';
+export default defineScenario<{ n: number }>({
+  name: '${name}', createState: () => ({ n: 0 }),
+  actors: ['a', 'b'].map((id) => ({ id, async run({ state, checkpoint }) { ${body} } })),
+  invariants: [{ name: 'inv', check: ${check} }],
+});
+`);
+  const passing = scenario('contract-pass', "await checkpoint('step'); state.n++;");
+  const failing = scenario('contract-fail', "await checkpoint('step'); state.n++;", '() => false');
+  const noisy = scenario('contract-noisy', "console.log('log from', id); process.stdout.write('raw\\n'); await checkpoint('step');");
+  const cases: [string[], number, string][] = [
+    [['test', passing], 0, 'passed'],
+    [['test', failing], 1, 'failed'],
+    [['test', passing, '--max-schedules', '1'], 3, 'incomplete'],
+    [['test', passing, '--bogus'], 2, 'error'],
+    [['test', noisy], 0, 'passed'],
+  ];
+  for (const [args, exitCode, result] of cases) {
+    for (const env of [process.env, { ...process.env, FORCE_COLOR: '1' }]) {
+      const run = cli([...args, '--json'], env);
+      assert.equal(run.status, exitCode, `${args.join(' ')}: ${run.stderr}`);
+      const report = JSON.parse(run.stdout);
+      assert.deepEqual([report.reportVersion, report.result, report.exitCode], [1, result, exitCode], args.join(' '));
+    }
+  }
+  assert.match(cli(['test', noisy, '--json']).stderr, /log from a/);
+
+  const tracePath = join(dir, 'nested', 'deeper', 'trace.json');
+  assert.equal(cli(['test', failing, '--trace-out', tracePath]).status, 1);
+  const replayed = cli(['replay', tracePath, failing]);
+  assert.equal(replayed.status, 1, replayed.stderr);
+  assert.match(replayed.stdout, /Replay reproduced the trace \(invariant_failed\)/);
+  assert.match(replayed.stdout, /Result: failed/);
 });

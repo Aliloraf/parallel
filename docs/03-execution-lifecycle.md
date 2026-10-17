@@ -91,7 +91,7 @@ Other limitations:
 
 ## CLI behavior
 
-`--step-timeout MS` sets `stepTimeoutMs` for both `test` and `replay`. Stalls are shown in the text and JSON output; the JSON also has `haltReason`, `abandonedWork` and `haltTrace` (the schedule that caused the halt), and the text output lists that schedule's teardown entries. A stalled exploration exits with status 1; an invalid `--step-timeout` with status 2.
+`--step-timeout MS` sets `stepTimeoutMs` for both `test` and `replay`. Stalls are shown in the text and JSON output; the JSON also has `haltReason`, `abandonedWork` and `haltTrace` (the schedule that caused the halt), and the text output lists that schedule's teardown entries. A stalled exploration exits with status 1; an invalid `--step-timeout` with status 2. An error that escapes from scenario code outside an actor's `run()` (a throwing timer callback, an unhandled rejection, a throwing abort listener) ends the CLI with a runtime error, exit status 5.
 
 When the engine reports abandoned work, the CLI writes its full report (also for diverged replays), prints a notice on stderr, waits for both output streams to flush, and then exits with the status it had already determined. This is the only place where the CLI ends the process explicitly; otherwise abandoned work such as a pending socket could keep it alive indefinitely. Runs without abandoned work exit normally.
 

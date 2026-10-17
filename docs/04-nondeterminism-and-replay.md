@@ -22,7 +22,7 @@ When the engine detects nondeterminism, exploration stops with `haltReason: 'non
 | `expected`, `observed` | The recorded and the observed choice point. |
 | `teardown`, `abandonedWork` | From closing the diverged run. |
 
-All outcomes and failures found before that point are kept. The diverged run isn't counted as an explored schedule, and it is closed with the usual bounded teardown, so abandoned work is reported and the CLI can't hang on it. The CLI prints the expected and observed choices and exits with status 1.
+All outcomes and failures found before that point are kept. The diverged run isn't counted as an explored schedule, and it is closed with the usual bounded teardown, so abandoned work is reported and the CLI can't hang on it. The CLI prints the expected and observed choices and exits with status 4, even if it found failures before the divergence.
 
 Detection only covers differences visible at checkpoints:
 
@@ -88,7 +88,7 @@ Traces contain your scenario's checkpoint names, invariant messages and error me
 
 `replay()` validates the trace, then runs exactly as many decisions as the trace records, checking at each step that the recorded decision is eligible. Traces don't store whole choice points, so replay can't notice an extra eligible actor the way exploration can. A trace that stopped at the step limit (`stepLimitReached`, or outcome `incomplete` in traces written before that field existed) is replayed up to the same limit.
 
-A replay that reproduces the trace returns `status: 'replayed'`. Otherwise it returns `status: 'replay_diverged'` with a `reason` for people and a `divergence` for programs:
+A replay that reproduces the trace returns `status: 'replayed'`. Otherwise it returns `status: 'replay_diverged'` with a `reason` for people and a `divergence` for programs. `parallel-sim replay` exits with 0, 1 or 3 when it reproduces a passing, failing or step-limited trace, and with 4 when the replay diverges.
 
 | `divergence.kind` | Meaning |
 |---|---|

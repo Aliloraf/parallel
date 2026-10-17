@@ -163,9 +163,9 @@ From code, `explore(scenario, options)` takes these options:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `maxSchedules` | 1000 | Stop after this many schedules. |
-| `maxSteps` | 100 | Maximum checkpoint decisions in one schedule. |
-| `stepTimeoutMs` | 10000 | Time an actor may take to reach its next checkpoint. |
+| `maxSchedules` | 1000 | Stop after this many schedules (CLI: `--max-schedules`). |
+| `maxSteps` | 100 | Maximum checkpoint decisions in one schedule (CLI: `--max-steps`). |
+| `stepTimeoutMs` | 10000 | Time an actor may take to reach its next checkpoint (CLI: `--step-timeout`). |
 | `stopOnFailure` | `false` | Stop at the first failing schedule. |
 
 Check `summary.complete` before trusting a passing result. It is `false` whenever exploration stopped early; `limitReached` (`maxSchedules` or `maxSteps`) and `haltReason` (`stalled`, `abandoned_work`, `nondeterministic`, `stop_on_failure`) say why.
@@ -178,7 +178,9 @@ Check `summary.complete` before trusting a passing result. It is `false` wheneve
 | `Actor a reached overlapping checkpoints` | Two checkpoints at once in one actor, for example inside `Promise.all`. |
 | `Exploration halted: stalled` | An actor waits on something that never resolves, or is slower than the step timeout. |
 | `Exploration halted: nondeterministic` | Runs differ between schedules: state outside `createState`, randomness, time or I/O. |
-| `Limit reached: maxSchedules` | Too many orderings for the bound. Raise it or remove checkpoints that don't matter. |
+| `Exploration incomplete: stopped at the --max-schedules limit` | Too many orderings for the bound. Raise `--max-schedules` or remove checkpoints that don't matter. |
+| `Exploration incomplete: a schedule reached the --max-steps limit` | A schedule needs more than `--max-steps` decisions, often because an actor loops over checkpoints. |
+| Exit status 5, `Uncaught error … outside a controlled step` | Scenario code threw from a callback or left a promise rejection unhandled, outside an actor's `run()`. |
 | `Cannot load TypeScript scenario …` | Node.js older than 22.18, or type stripping disabled. |
 | `… uses TypeScript syntax that cannot be stripped …` | `enum`, `namespace` or parameter properties in the scenario or code it imports. |
 | `Invalid scenario exported by …` | The default (or `scenario`) export isn't a scenario object. |

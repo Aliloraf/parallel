@@ -35,7 +35,7 @@ test('CLI saves and replays a failure from an external TypeScript scenario', () 
     assert.equal(first.status, 1, first.stderr);
     const trace = JSON.parse(readFileSync(path, 'utf8'));
     assert.equal(trace.scenario, 'counter-lost-update');
-    const replay = runCli(['replay', path, example]);
+    const replay = runCli(['replay', path, example, '--json']);
     assert.equal(replay.status, 1, replay.stderr); // Known failure returns status 1.
     const output = JSON.parse(replay.stdout);
     assert.equal(output.status, 'replayed');
@@ -141,7 +141,7 @@ test('CLI replays a stalled trace using its recorded timeout', () => {
     const path = join(dir, 'stall.json');
     assert.equal(runCli(['test', file, '--step-timeout', '100', '--trace-out', path]).status, 1);
     const started = Date.now();
-    const result = runCli(['replay', path, file]);
+    const result = runCli(['replay', path, file, '--json']);
     assert.ok(Date.now() - started < 15_000);
     assert.equal(result.status, 1, result.stderr);
     assert.equal(JSON.parse(result.stdout).status, 'replayed');
@@ -176,7 +176,7 @@ test('CLI exits normally when a stalled actor honors context.signal', () => {
 test('CLI rejects invalid or missing --step-timeout values', () => {
   const invalid = runCli(['test', 'inventory-fixed', '--step-timeout', '0']);
   assert.equal(invalid.status, 2);
-  assert.match(invalid.stderr, /stepTimeoutMs/);
+  assert.match(invalid.stderr, /--step-timeout must be an integer/);
   const missing = runCli(['test', 'inventory-fixed', '--step-timeout']);
   assert.equal(missing.status, 2);
   assert.match(missing.stderr, /Missing --step-timeout value/);
@@ -195,9 +195,9 @@ test('CLI terminates a diverged replay whose actor ignores cancellation', () => 
     const path = join(dir, 'diverged.json');
     writeFileSync(path, JSON.stringify({ schemaVersion: 1, scenario: 'diverged-cleanup', decisions: [{ actor: 'nobody', checkpoint: 'x' }], outcome: 'passed', violations: [], errors: [] }));
     const started = Date.now();
-    const result = runCli(['replay', path, file, '--step-timeout', '100']);
+    const result = runCli(['replay', path, file, '--step-timeout', '100', '--json']);
     assert.ok(Date.now() - started < 15_000, 'CLI must not wait for the abandoned cleanup timer');
-    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.status, 4, result.stderr);
     const output = JSON.parse(result.stdout);
     assert.equal(output.status, 'replay_diverged');
     assert.equal(output.abandonedWork, true);
@@ -205,14 +205,14 @@ test('CLI terminates a diverged replay whose actor ignores cancellation', () => 
   });
 });
 
-test('CLI preserves a usage-error exit status when terminating abandoned work', () => {
+test('CLI rejects a missing option value before running any scenario code', () => {
   withScenarioFile(stalledWithLiveTimer, (file) => {
     const started = Date.now();
     const result = runCli(['test', file, '--step-timeout', '100', '--trace-out']);
     assert.ok(Date.now() - started < 15_000);
     assert.equal(result.status, 2);
     assert.match(result.stderr, /Missing --trace-out value/);
-    assert.match(result.stderr, /abandoned/i);
+    assert.doesNotMatch(result.stderr, /abandoned/i, 'nothing ran, so nothing was abandoned');
   });
 });
 
@@ -228,7 +228,7 @@ test('CLI reports which actor left abandoned work when exploration halts without
     invariants: [{ name: 'ok', check: () => true }],
   };`, (file) => {
     const json = runCli(['test', file, '--step-timeout', '100', '--json']);
-    assert.equal(json.status, 1, json.stderr);
+    assert.equal(json.status, 3, json.stderr);
     const report = JSON.parse(json.stdout);
     assert.equal(report.haltReason, 'abandoned_work');
     assert.equal(report.complete, false);
@@ -250,10 +250,10 @@ export default {
   invariants: [{ name: 'ok', check: () => true }],
 };`;
 
-test('CLI reports nondeterministic exploration as structured data with exit status 1', () => {
+test('CLI reports nondeterministic exploration as structured data with exit status 4', () => {
   withScenarioFile(nondeterministicScenario(''), (file) => {
     const json = runCli(['test', file, '--json']);
-    assert.equal(json.status, 1, json.stderr);
+    assert.equal(json.status, 4, json.stderr);
     const report = JSON.parse(json.stdout);
     assert.equal(report.complete, false);
     assert.equal(report.haltReason, 'nondeterministic');
@@ -263,7 +263,7 @@ test('CLI reports nondeterministic exploration as structured data with exit stat
     assert.equal(report.haltTrace, null, 'the diverged run is not an explored schedule');
     assert.equal(report.firstFailure, null);
     const human = runCli(['test', file]);
-    assert.equal(human.status, 1, human.stderr);
+    assert.equal(human.status, 4, human.stderr);
     assert.match(human.stdout, /Exploration halted: nondeterministic/);
     assert.match(human.stdout, /NONDETERMINISM after 0 decision\(s\) of forced prefix \[b:y\]/);
     assert.match(human.stdout, /expected choices: a:a1, b:y/);
@@ -277,7 +277,7 @@ test('CLI terminates promptly when nondeterministic exploration leaves abandoned
     const started = Date.now();
     const result = runCli(['test', file, '--step-timeout', '100', '--json']);
     assert.ok(Date.now() - started < 15_000, 'CLI must not wait for the abandoned cleanup timer');
-    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.status, 4, result.stderr);
     const report = JSON.parse(result.stdout);
     assert.equal(report.haltReason, 'nondeterministic');
     assert.equal(report.abandonedWork, true);
@@ -319,8 +319,8 @@ test('CLI replay output includes the structured divergence', () => {
     const trace = JSON.parse(readFileSync(path, 'utf8'));
     trace.decisions.push({ actor: 'customer-a', checkpoint: 'extra' });
     writeFileSync(path, JSON.stringify(trace));
-    const result = runCli(['replay', path]);
-    assert.equal(result.status, 1, result.stderr);
+    const result = runCli(['replay', path, '--json']);
+    assert.equal(result.status, 4, result.stderr);
     const output = JSON.parse(result.stdout);
     assert.equal(output.status, 'replay_diverged');
     assert.deepEqual(output.divergence, { kind: 'ended_early', afterDecisions: 4 });

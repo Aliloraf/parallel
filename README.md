@@ -53,15 +53,17 @@ With the CLI installed in your project (see [Installation](#installation)):
 $ npx --no parallel-sim test scenarios/last-item.ts
 Scenario: last-item
 Schedules explored: 6
-Failures: 4
+Failures: 4 (invariant_failed: 4)
 Exploration complete: true
 
-First failure:
+First failure (invariant_failed):
   1. bob: read-stock
   2. alice: read-stock
   3. alice: commit
   4. bob: commit
   VIOLATION no-overselling: sold 2 items, but only 1 was in stock
+
+Result: failed
 ```
 
 Save the failure and replay it later, for example in CI after fixing the bug:
@@ -140,14 +142,23 @@ test('finds and reproduces the oversell', async () => {
 ## The `parallel-sim` command
 
 ```text
-parallel-sim test <scenario> [--json] [--max-schedules N] [--step-timeout MS] [--trace-out PATH]
-parallel-sim replay <trace> [scenario] [--step-timeout MS]
+parallel-sim test <scenario> [--json] [--max-schedules N] [--max-steps N] [--step-timeout MS] [--trace-out PATH]
+parallel-sim replay <trace> [scenario] [--json] [--step-timeout MS]
 parallel-sim --help | --version
 ```
 
-A scenario is a `.ts`, `.mts`, `.js` or `.mjs` file whose default export (or `scenario` export) is a scenario, or one of the built-in demos `inventory-buggy` and `inventory-fixed`. `--trace-out` writes the first failing schedule, and nothing if there is no failure. `replay` needs the scenario file again unless the trace is from a built-in demo.
+A scenario is a `.ts`, `.mts`, `.js` or `.mjs` file whose default export (or `scenario` export) is a scenario, or one of the built-in demos `inventory-buggy` and `inventory-fixed`. `--trace-out` writes the first failing schedule, and says so when there was nothing to write. `replay` needs the scenario file again unless the trace is from a built-in demo. Options can go anywhere after the command; unknown, repeated or malformed options are rejected before any scenario code runs.
 
-The exit status is 0 when exploration completed without failures (or a replayed trace passed), 1 when it found failures or could not complete, and 2 for usage errors and invalid scenarios or traces. Replaying a saved failure therefore exits with 1 as long as the bug is still there.
+| Exit status | Meaning |
+|---|---|
+| 0 | Exploration completed without failures, or a replayed trace passed. |
+| 1 | Failures found (invariant violations, actor errors, stalls), or a replayed trace still fails. |
+| 2 | Invalid usage or input, such as an unknown option, a missing scenario or trace, or a trace that couldn't be written. |
+| 3 | Exploration stopped at `--max-schedules` or `--max-steps`, or because of abandoned work, without finding failures. |
+| 4 | The scenario behaved nondeterministically, or a replay diverged from its trace. |
+| 5 | Runtime error: an uncaught error from scenario code outside a controlled step, or an engine failure. |
+
+So in CI, replaying a saved failure exits with 1 while the bug is still there and with 4 once the code no longer produces that trace. With `--json`, both commands print a single JSON report on stdout and send any output from scenario code to stderr; the [CLI documentation](packages/cli/README.md#json-output) describes the format.
 
 The examples use `npx --no`, which runs the CLI installed in the current project and fails instead of installing anything when it isn't there. Without `--no`, npx would offer to install a registry package named `parallel-sim`, which is not part of Parallel. With `--no`, options that come before a subcommand need a `--`: `npx --no parallel-sim -- --help`.
 
