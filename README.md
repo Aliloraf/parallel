@@ -94,6 +94,28 @@ for the actor states, teardown rules and trace fields.
 
 The six expected interleavings of two actors with two checkpoints each are covered by automated tests.
 
+## Nondeterminism and replay
+
+Exploration re-runs the scenario from scratch for every schedule, so it relies
+on the scenario being deterministic at its checkpoints. When re-running a
+schedule prefix offers different eligible actors or checkpoints than the run
+that recorded it, Parallel halts with `haltReason: 'nondeterministic'`. It
+reports the expected and observed choices, keeps every outcome and failure
+found so far, and exits with status 1. This detection only covers differences
+visible at checkpoints. It does not prove a scenario deterministic.
+
+`Exploration complete: true` means every modeled interleaving was explored
+within the configured bounds. It does not mean the application is correct
+outside that model.
+
+`replay` validates the trace before running it. Invalid JSON and invalid traces
+exit with status 2, and the message names the bad field. A replay that can't
+reproduce the trace prints a machine-readable `divergence`. Its `kind` is one
+of `decision_not_eligible`, `ended_early`, `continued`, `result_mismatch`,
+`scenario_mismatch` or `unsupported_schema`. Traces that hit the step limit
+replay correctly. See
+[docs/04-nondeterminism-and-replay.md](docs/04-nondeterminism-and-replay.md).
+
 ## Repository layout
 
 ```text
@@ -104,20 +126,14 @@ examples/inventory/src/  Buggy and fixed inventory workflows
 tests/                   Automated tests
 docs/02-requirements.md  Draft SRS, target requirements for v0.1
 docs/03-execution-lifecycle.md  Actor states, stall detection, cancellation limits
+docs/04-nondeterminism-and-replay.md  Nondeterminism detection, completeness, replay divergence
 ```
 
 ## Next steps
 
-- **Next task: classify nondeterminism during exploration.** If a scenario
-  behaves differently when a schedule prefix is re-executed, `explore()`
-  currently rejects with a generic error. Instead it should return a
-  classified result, for example a `nondeterministic` halt that includes the
-  diverging step and its abandoned-work status. The CLI should apply its
-  abandoned-work termination boundary in that case. See
-  [docs/03-execution-lifecycle.md](docs/03-execution-lifecycle.md#5-detection-is-not-cancellation).
 - Package the CLI and SDK for installation outside this repository.
 - Run actors in worker threads to enable forced cancellation and detection of synchronous hangs.
-- Cover additional error cases, divergence, and trace compatibility.
+- Trace format v2: record choice points and run configuration so replay can detect changed choices, with a migration path from v1.
 - Add package boundaries, linting, and usage-focused SDK documentation.
 - Investigate schedule-reduction techniques after correctness is demonstrated.
 

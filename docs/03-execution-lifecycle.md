@@ -150,14 +150,12 @@ Other known limitations:
   actor frozen on a parked checkpoint from one that is still active. Any
   actor that ignores cancellation therefore costs the full teardown budget
   and halts exploration, unless its task settles within that budget.
-- **Nondeterminism found during exploration is not classified.** When a
-  scenario behaves differently on re-execution, so that a recorded prefix
-  decision is no longer eligible, `explore()` rejects with a generic error.
-  It does not return a classified result, and abandoned work from that run is
-  not reported. In the CLI this becomes exit status 2, and the termination
-  boundary is not applied, so live handles from that run can keep the process
-  alive. Replay divergence (`replay()`) is not affected. This is tracked as
-  the next development task.
+- **Divergence and engine failures still close the run.** When
+  nondeterminism is detected or replay diverges, the run is closed with the
+  same bounded teardown, and its abandoned work is reported (see
+  `04-nondeterminism-and-replay.md`). Any other unexpected failure after
+  actors start throws an `ExecutionError` carrying `abandonedWork`, so the CLI
+  can still apply its termination boundary.
 - **Abort listeners that throw crash the process.** An exception thrown by a
   listener on `context.signal` is reported by Node.js as an uncaught exception.
 
@@ -191,3 +189,6 @@ Replaying a stalled trace uses its recorded `timeoutMs` unless `stepTimeoutMs`
 is passed explicitly. The replay matches if the same actors stall at the same
 point, with the same last checkpoints. A diverged replay that ran to completion
 includes the `observed` trace.
+
+The optional `stepLimitReached` field, validation, and the classification of
+replay divergence are covered in `04-nondeterminism-and-replay.md`.

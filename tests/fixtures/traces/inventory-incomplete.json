@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "scenario": "inventory-buggy",
+  "decisions": [
+    {
+      "actor": "customer-a",
+      "checkpoint": "read-stock"
+    },
+    {
+      "actor": "customer-a",
+      "checkpoint": "commit-purchase"
+    }
+  ],
+  "outcome": "incomplete",
+  "violations": [],
+  "errors": []
+}

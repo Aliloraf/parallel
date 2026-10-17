@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "scenario": "fixture-cleanup-error",
+  "decisions": [
+    {
+      "actor": "a",
+      "checkpoint": "a1"
+    }
+  ],
+  "outcome": "incomplete",
+  "violations": [],
+  "errors": [],
+  "teardown": [
+    {
+      "actor": "a",
+      "status": "cleanup-error",
+      "detail": "cleanup failed"
+    }
+  ]
+}

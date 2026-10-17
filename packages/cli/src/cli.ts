@@ -2,8 +2,8 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { explore, replay } from '../../engine/src/index.ts';
-import type { Trace } from '../../engine/src/index.ts';
+import { ExecutionError, explore, replay, validateTrace } from '../../engine/src/index.ts';
+import type { Decision, Trace } from '../../engine/src/index.ts';
 import { inventoryScenario } from '../../../examples/inventory/src/scenarios.ts';
 import { defineScenario } from '../../sdk/src/index.ts';
 import type { Scenario } from '../../sdk/src/index.ts';
@@ -14,6 +14,8 @@ function flagValue(key: string): string | undefined {
   const i = args.indexOf(key);
   return i >= 0 ? args[i + 1] : undefined;
 }
+const formatDecisions = (decisions: readonly Decision[]) =>
+  decisions.length > 0 ? decisions.map(({ actor, checkpoint }) => `${actor}:${checkpoint}`).join(', ') : '(none)';
 function stepTimeoutFlag(): number | undefined {
   const value = flagValue('--step-timeout');
   if (args.includes('--step-timeout') && value === undefined) throw new Error('Missing --step-timeout value');
@@ -73,8 +75,9 @@ try {
     const summary = await explore(scenario, { maxSchedules, stepTimeoutMs: stepTimeoutFlag() });
     abandonedWork = summary.abandonedWork;
     const firstFailure = summary.failures[0];
-    // When exploration halts, the last explored schedule is the one that caused it.
-    const haltTrace = summary.haltReason ? summary.outcomes.at(-1) ?? null : null;
+    // When exploration halts, the last explored schedule caused it, except for
+    // nondeterminism: the diverged run is reported separately, not as a schedule.
+    const haltTrace = summary.haltReason && summary.haltReason !== 'nondeterministic' ? summary.outcomes.at(-1) ?? null : null;
     const output = flagValue('--trace-out');
     if (args.includes('--trace-out') && !output) throw new Error('Missing --trace-out value');
     if (firstFailure && output) {
@@ -91,6 +94,7 @@ try {
         haltReason: summary.haltReason,
         abandonedWork: summary.abandonedWork,
         haltTrace,
+        nondeterminism: summary.nondeterminism,
         firstFailure: firstFailure ?? null,
         tracePath: firstFailure && output ? resolve(output) : null,
       }, null, 2));
@@ -102,6 +106,13 @@ try {
       if (summary.limitReached) console.log(`Limit reached: ${summary.limitReached}`);
       if (summary.haltReason) console.log(`Exploration halted: ${summary.haltReason}`);
       haltTrace?.teardown?.forEach(({ actor, status, detail }) => console.log(`  TEARDOWN ${actor}: ${status} (${detail})`));
+      const { nondeterminism } = summary;
+      if (nondeterminism) {
+        console.log(`  NONDETERMINISM after ${nondeterminism.afterDecisions} decision(s) of forced prefix [${formatDecisions(nondeterminism.prefix)}]`);
+        console.log(`    expected choices: ${formatDecisions(nondeterminism.expected)}`);
+        console.log(`    observed choices: ${formatDecisions(nondeterminism.observed)}`);
+        nondeterminism.teardown?.forEach(({ actor, status, detail }) => console.log(`  TEARDOWN ${actor}: ${status} (${detail})`));
+      }
       if (firstFailure) {
         console.log('\nFirst failure:');
         firstFailure.decisions.forEach((decision, i) => console.log(`  ${i + 1}. ${decision.actor}: ${decision.checkpoint}`));
@@ -118,9 +129,23 @@ try {
     process.exitCode = firstFailure || !summary.complete ? 1 : 0;
   } else if (command === 'replay') {
     if (!args[1]) throw new Error(usage);
-    const trace = JSON.parse(readFileSync(resolve(args[1]), 'utf8')) as Trace;
+    const tracePath = resolve(args[1]);
+    let input: unknown;
+    try {
+      input = JSON.parse(readFileSync(tracePath, 'utf8'));
+    } catch (cause) {
+      if (cause instanceof SyntaxError) throw new Error(`Trace file ${tracePath} is not valid JSON: ${cause.message}`);
+      throw cause;
+    }
+    // Validate before reading any field. Well-formed traces of other schema
+    // versions are left to replay(), which reports them as unsupported.
+    const version = typeof input === 'object' && input !== null ? (input as { schemaVersion?: unknown }).schemaVersion : undefined;
+    if (typeof version !== 'number' || version === 1) validateTrace(input);
+    const trace = input as Trace;
     const scenarioArg = args[2]?.startsWith('--') ? undefined : args[2];
-    const scenario = await loadScenario(scenarioArg ?? trace.scenario);
+    const scenarioName = scenarioArg ?? (typeof trace.scenario === 'string' ? trace.scenario : undefined);
+    if (!scenarioName) throw new Error('Trace does not name a scenario; pass a scenario file as the second argument');
+    const scenario = await loadScenario(scenarioName);
     const result = await replay(scenario, trace, { stepTimeoutMs: stepTimeoutFlag() });
     abandonedWork = result.abandonedWork;
     console.log(JSON.stringify(result, null, 2));
@@ -131,5 +156,7 @@ try {
 } catch (cause) {
   console.error(cause instanceof Error ? cause.message : String(cause));
   process.exitCode = 2;
+  // An engine failure still closed its run; honor any work it could not settle.
+  if (cause instanceof ExecutionError && cause.abandonedWork) abandonedWork = true;
 }
 if (abandonedWork) await terminateAbandonedWork();
