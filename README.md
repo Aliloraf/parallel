@@ -116,27 +116,4 @@ of `decision_not_eligible`, `ended_early`, `continued`, `result_mismatch`,
 replay correctly. See
 [docs/04-nondeterminism-and-replay.md](docs/04-nondeterminism-and-replay.md).
 
-## Repository layout
-
-```text
-packages/sdk/src/        Typed scenario definitions and cooperative checkpoint API
-packages/engine/src/     Exploration, trace generation, and replay
-packages/cli/src/        Local test / replay CLI (bundled example scenarios)
-examples/inventory/src/  Buggy and fixed inventory workflows
-tests/                   Automated tests
-docs/02-requirements.md  Draft SRS, target requirements for v0.1
-docs/03-execution-lifecycle.md  Actor states, stall detection, cancellation limits
-docs/04-nondeterminism-and-replay.md  Nondeterminism detection, completeness, replay divergence
-```
-
-## Next steps
-
-- Package the CLI and SDK for installation outside this repository.
-- Run actors in worker threads to enable forced cancellation and detection of synchronous hangs.
-- Trace format v2: record choice points and run configuration so replay can detect changed choices, with a migration path from v1.
-- Add package boundaries, linting, and usage-focused SDK documentation.
-- Investigate schedule-reduction techniques after correctness is demonstrated.
-
-## Naming and licensing
-
-`Parallel` is a working project name. Check existing products, npm package names and trademarks before publishing or monetizing. No open-source license has been chosen yet; add one after deciding how the project will be distributed.
+...
