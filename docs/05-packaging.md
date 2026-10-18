@@ -1,6 +1,6 @@
 # Packaging and publishing
 
-Version 0.1.0 of the three packages is built, tested and ready to publish, but nothing has been published to npm yet. Until it is, users install from locally built tarballs, as the [README](../README.md#installation) describes. This document explains how the packages are put together, how that is verified, and what to do when publishing.
+This document explains how the three packages are put together, how that is verified, and how to publish them. Users install them from npm or, for unreleased versions, from locally built tarballs, as the [README](../README.md#installation) describes.
 
 ## Packages
 
@@ -51,14 +51,12 @@ When loading fails, the CLI replaces Node.js's error with an explanation for thr
 
 ## Publishing checklist
 
-Not done yet. For the first release:
-
 1. Check that `npm whoami` prints `aliloraf`, or that an npm organization named `aliloraf` exists and you can publish to it. Only the owner of a scope can publish packages in it.
 2. Enable two-factor authentication for publishing on the npm account.
 3. Decide whether to reserve the unscoped name `parallel-sim`, for example with a minimal package that points to `@aliloraf/parallel-cli`.
-4. Remove the "Not yet published" notes from the three package READMEs (npm shows them on the package pages), and change the README's installation section to install from npm.
-5. Run `npm ci`, `npm test` and `npm run test:integration`, then `npm publish --workspaces --dry-run`, and review the file lists.
-6. Publish in dependency order, sdk, engine, cli, with `npm publish --workspace <name>`. Publishing from CI with `--provenance` (GitHub Actions OIDC) is preferable to publishing from a laptop.
-7. Tag the release as `v0.1.0` and move the changelog entry out of "unreleased".
+4. Run `npm ci`, `npm test` and `npm run test:integration`, then `npm publish --workspaces --dry-run`, and review the file lists. The dry run must not report corrections to any `package.json`.
+5. Publish in dependency order, sdk, engine, cli, with `npm publish --workspace <name>`. The CLI pins the exact engine version, so it can't be installed until that engine version is on npm. Publishing from CI with `--provenance` (GitHub Actions OIDC) is preferable to publishing from a laptop.
+6. In a new project, install the published packages and run the README example.
+7. Tag the release (for example `v0.1.0`) and add the release date to its changelog entry.
 
 Versions follow semantic versioning; while the version is 0.x, breaking changes increase the minor version.

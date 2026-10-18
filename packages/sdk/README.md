@@ -2,7 +2,9 @@
 
 The scenario API for [Parallel](https://github.com/Aliloraf/parallel), which tests asynchronous TypeScript code for race conditions by running it under every ordering of the checkpoints you mark. A scenario has fresh initial state, two or more actors that pause at named checkpoints, and invariants that must hold however the actors interleave.
 
-> Not published yet. Version 0.1.0 is ready but not on npm; until it is, [install it from a local build](https://github.com/Aliloraf/parallel#installation). After the release: `npm install --save-dev @aliloraf/parallel-sdk @aliloraf/parallel-cli`.
+```bash
+npm install --save-dev @aliloraf/parallel-sdk @aliloraf/parallel-cli
+```
 
 ```ts
 import { defineScenario } from '@aliloraf/parallel-sdk';

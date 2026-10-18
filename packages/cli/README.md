@@ -2,11 +2,8 @@
 
 `parallel-sim`, the command-line runner for [Parallel](https://github.com/Aliloraf/parallel) scenarios.
 
-> Not published yet. Version 0.1.0 is ready but not on npm; until it is, [install it from a local build](https://github.com/Aliloraf/parallel#installation). After the release: `npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk`.
-
-With the CLI installed in your project:
-
 ```bash
+npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk
 npx --no parallel-sim test scenarios/last-item.ts
 npx --no parallel-sim test scenarios/last-item.ts --trace-out traces/last-item.json
 npx --no parallel-sim replay traces/last-item.json scenarios/last-item.ts
@@ -79,7 +76,7 @@ These guarantees cover everything the CLI can catch. They can't hold when scenar
 
 ## TypeScript scenarios
 
-Scenarios run on Node.js's built-in type stripping (Node.js 22.18 or later), so there is no build step. That means erasable syntax only (no `enum`, `namespace` or constructor parameter properties), `import type` for type-only imports, and `.ts` extensions in relative imports. Otherwise, write the scenario in JavaScript or bring your own loader, for example `NODE_OPTIONS=--import=tsx npx --no parallel-sim test ...`. When a scenario can't be loaded, the CLI says why and where. See [writing scenarios](https://github.com/Aliloraf/parallel/blob/main/docs/06-writing-scenarios.md).
+Scenarios run on Node.js's built-in type stripping (Node.js 22.18 or later), so there is no build step. That means erasable syntax only (no `enum`, `namespace` or constructor parameter properties), `import type` for type-only imports, and `.ts` extensions in relative imports. Otherwise, write the scenario in JavaScript or bring your own loader, for example `NODE_OPTIONS=--import=tsx npx --no parallel-sim test ...`. When a scenario can't be loaded, the CLI says why and where. In a project without `"type": "module"` in its `package.json`, Node.js warns when a `.ts` scenario uses `import`/`export`; name the file `.mts` or set `"type": "module"` to avoid the warning. See [writing scenarios](https://github.com/Aliloraf/parallel/blob/main/docs/06-writing-scenarios.md).
 
 `npx --no` runs the CLI installed in the current project and fails instead of installing anything when it isn't there; without `--no`, npx would offer to install an unrelated `parallel-sim` package from the registry. With `--no`, options that come before a subcommand need a `--`: `npx --no parallel-sim -- --help`.
 

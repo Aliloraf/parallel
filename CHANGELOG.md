@@ -2,9 +2,9 @@
 
 Changes to the published packages (`@aliloraf/parallel-sdk`, `@aliloraf/parallel-engine` and `@aliloraf/parallel-cli`). The three packages share one version number and follow semantic versioning; while the version is 0.x, breaking changes increase the minor version.
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
-The first release. Nothing has been published to npm yet.
+The first release.
 
 ### Features
 
@@ -27,11 +27,11 @@ The first release. Nothing has been published to npm yet.
 - Compiled JavaScript, type declarations and self-contained source maps; ES modules that can also be loaded with `require()`.
 - Requires Node.js 22.18.0 or later, for its built-in TypeScript type stripping.
 - Licensed under the Apache License 2.0.
-- The deprecated, unused `RunResult` type was removed before the release.
+- The deprecated, unused `RunResult` type was removed.
 
-### Changes since the unreleased development versions
+### Changes since the development versions
 
-These affect anyone who used the CLI from the repository before the release:
+These affect anyone who used the CLI from the repository before 0.1.0:
 
 - Incomplete exploration now exits with 3 instead of 1, nondeterminism and replay divergence with 4 instead of 1, and engine failures with 5 instead of 2.
 - `replay` prints text by default; use `--json` for the JSON result.
