@@ -2,7 +2,9 @@
 
 The [Parallel](https://github.com/Aliloraf/parallel) engine. It explores the interleavings of a scenario's checkpoints, checks its invariants, records failing schedules as traces and replays them. Use it to run scenarios from your own code or test runner (`node:test`, Vitest, Jest); for the command line, use [`@aliloraf/parallel-cli`](https://github.com/Aliloraf/parallel/tree/main/packages/cli).
 
-> Not published yet. Version 0.1.0 is ready but not on npm; until it is, [install it from a local build](https://github.com/Aliloraf/parallel#installation). After the release: `npm install --save-dev @aliloraf/parallel-engine @aliloraf/parallel-sdk`.
+```bash
+npm install --save-dev @aliloraf/parallel-engine @aliloraf/parallel-sdk
+```
 
 ```ts
 import assert from 'node:assert/strict';

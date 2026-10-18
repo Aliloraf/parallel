@@ -39,6 +39,7 @@
     },
     "./package.json": "./package.json"
   },
+  "types": "./dist/index.d.ts",
   "sideEffects": false,
   "peerDependencies": {
     "@aliloraf/parallel-sdk": "^0.1.0"

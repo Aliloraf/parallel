@@ -43,19 +43,18 @@ Later layers, such as isolated execution environments, a report viewer, or a hos
 
 These phases describe direction and order, not dates or commitments.
 
-### Done so far (0.1.0, unreleased)
+### 0.1.0
 
 - TypeScript scenario SDK with explicit checkpoints and invariants.
 - Depth-first schedule exploration with schedule and step bounds.
 - Versioned failure traces and deterministic replay, with structured divergence reports.
 - Actor lifecycle management: stall detection, cooperative cancellation, bounded teardown.
 - Detection of nondeterministic scenarios.
-- npm packages and the `parallel-sim` CLI, tested on Linux and Windows.
+- The `parallel-sim` CLI: strict argument parsing, exit codes that separate failures, incomplete exploration, nondeterminism and runtime errors, and versioned JSON reports.
+- npm packages, tested on Linux and Windows.
 
 ### Next: developer workflow
 
-- First npm release.
-- CLI improvements: proper argument parsing, and separate exit codes for divergence and nondeterminism.
 - Trace format v2, recording choice points and run configuration so that replay can detect changed behavior more precisely.
 - Invariants that can be checked at intermediate steps, not only at the end.
 - Shrinking failing schedules to the fewest steps that still fail.

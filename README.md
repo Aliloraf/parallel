@@ -2,7 +2,7 @@
 
 Parallel finds race conditions in asynchronous TypeScript code. You mark the points where concurrent operations can interleave, and Parallel runs your scenario once for each ordering of those points (up to limits you can set), checks your invariants after each run, and saves any failing ordering as a trace you can replay deterministically.
 
-Status: version 0.1.0, pre-release. The packages are not on npm yet; see [Installation](#installation).
+Status: early development (0.x). Expect breaking changes between minor versions; the [changelog](CHANGELOG.md) lists every release.
 
 ## Why
 
@@ -77,7 +77,15 @@ npx --no parallel-sim replay traces/last-item.json scenarios/last-item.ts
 
 Parallel requires Node.js 22.18 or later, which runs TypeScript scenarios directly through its built-in type stripping.
 
-The packages are not published yet. Until the first release, build them from this repository and install the tarballs into your project. Install all three: the CLI depends on the engine, which npm can't fetch from the registry yet. `npm pack` won't create the destination directory, so create it first.
+```bash
+npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk
+```
+
+Add `@aliloraf/parallel-engine` to run scenarios from your own code or test runner.
+
+### From a local build
+
+To use a version that isn't on npm, build the packages from this repository and install the tarballs into your project. Install all three: the CLI depends on the exact engine version, which npm otherwise tries to fetch from the registry. `npm pack` won't create the destination directory, so create it first.
 
 On macOS or Linux:
 
@@ -113,7 +121,7 @@ npm install --save-dev `
   "$HOME\parallel-packages\aliloraf-parallel-cli-0.1.0.tgz"
 ```
 
-npm records the tarballs as `file:` dependencies; run `npm install` again after rebuilding. Once 0.1.0 is published, installing will be `npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk`.
+npm records the tarballs as `file:` dependencies; run `npm install` again after rebuilding.
 
 ## Packages
 

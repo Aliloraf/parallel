@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -105,6 +105,7 @@ test('every export, type and bin target exists in the installed packages, with n
       }
     };
     collect(pkg.exports, 'exports');
+    if (pkg.types) targets.push(pkg.types);
     if (pkg.bin) targets.push(...Object.values(pkg.bin as Record<string, string>));
     assert.ok(targets.length > 0);
     for (const target of targets) assert.ok(existsSync(join(dir, target)), `${name}: ${target} does not exist`);
@@ -425,4 +426,46 @@ export default defineScenario<{ n: number }>({
   assert.equal(replayed.status, 1, replayed.stderr);
   assert.match(replayed.stdout, /Replay reproduced the trace \(invariant_failed\)/);
   assert.match(replayed.stdout, /Result: failed/);
+});
+
+test('the shipped types resolve under node, nodenext and bundler module resolution', () => {
+  const tsc = join(root, 'node_modules', 'typescript', 'bin', 'tsc');
+  write('resolution/use.ts', `import { explore, replay } from '@aliloraf/parallel-engine';
+import type { ExploreResult } from '@aliloraf/parallel-engine';
+import { defineScenario, SimulationCancelledError } from '@aliloraf/parallel-sdk';
+import type { StepContext } from '@aliloraf/parallel-sdk';
+
+const scenario = defineScenario<{ n: number }>({
+  name: 'resolution',
+  createState: () => ({ n: 0 }),
+  actors: ['a', 'b'].map((id) => ({ id, async run({ state, checkpoint }: StepContext<{ n: number }>) { await checkpoint('step'); state.n++; } })),
+  invariants: [{ name: 'both', check: ({ n }) => n === 2 }],
+});
+export const check = async (): Promise<ExploreResult> => explore(scenario);
+export const cancelled = (error: unknown): boolean => error instanceof SimulationCancelledError;
+export { replay };
+`);
+  // `moduleResolution: node` ignores package exports and needs the top-level `types` field.
+  const modes: [string, string][] = [['node', 'commonjs'], ['nodenext', 'nodenext'], ['bundler', 'esnext']];
+  for (const [moduleResolution, module] of modes) {
+    const config = `tsconfig.${moduleResolution}.json`;
+    writeFileSync(join(consumer, 'resolution', config), JSON.stringify({
+      compilerOptions: { module, moduleResolution, target: 'ES2022', strict: true, noEmit: true, skipLibCheck: false, typeRoots: [join(root, 'node_modules', '@types')], types: ['node'] },
+      files: ['use.ts'],
+    }));
+    const result = node([tsc, '-p', join('resolution', config)]);
+    assert.equal(result.status, 0, `moduleResolution ${moduleResolution}:\n${result.stdout}${result.stderr}`);
+  }
+});
+
+test('npm finds nothing to correct in the published manifests', () => {
+  for (const name of PACKAGES) {
+    const copy = join(work, 'manifest-check', name.replace('/', '-'));
+    mkdirSync(join(copy, '..'), { recursive: true });
+    cpSync(join(consumer, 'node_modules', name), copy, { recursive: true });
+    const before = readFileSync(join(copy, 'package.json'), 'utf8');
+    const fix = npm(['pkg', 'fix'], copy);
+    assert.equal(fix.status, 0, fix.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(join(copy, 'package.json'), 'utf8')), JSON.parse(before), `npm pkg fix would change ${name}`);
+  }
 });

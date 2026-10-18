@@ -134,6 +134,8 @@ Parallel loads TypeScript scenarios with Node.js's built-in type stripping, so t
 - `import type` for imports that are only types.
 - Relative imports with their `.ts` extension, as in `import { withdraw } from '../src/accounts.ts'`.
 
+In a project without `"type": "module"` in its `package.json`, Node.js prints a warning when a `.ts` scenario uses `import`/`export`. Name the file `.mts`, or set `"type": "module"`, to avoid it.
+
 These `tsconfig.json` settings make `tsc` enforce the same rules: `"module": "nodenext"`, `"verbatimModuleSyntax": true`, `"erasableSyntaxOnly": true`, `"allowImportingTsExtensions": true`, `"noEmit": true`.
 
 If your code can't follow them, either write the scenario in JavaScript (`.js`/`.mjs`), register a TypeScript loader yourself (`NODE_OPTIONS=--import=tsx npx --no parallel-sim test ...`), or run scenarios through the engine from a test runner that compiles TypeScript, such as Vitest.
