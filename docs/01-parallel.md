@@ -53,6 +53,14 @@ These phases describe direction and order, not dates or commitments.
 - The `parallel-sim` CLI: strict argument parsing, exit codes that separate failures, incomplete exploration, nondeterminism and runtime errors, and versioned JSON reports.
 - npm packages, tested on Linux and Windows.
 
+### Unreleased
+
+- A worked application example ([`examples/shop/`](../examples/shop)): an order service with inventory overselling, duplicate payment processing and double reservation, each with a corrected implementation, tested through its own business functions rather than rewritten as scenarios.
+- `attempt()` and `Attempt<T>` in the SDK, so an expected application rejection becomes scenario data instead of an `actor_error` that suppresses the invariants, while cancellation still reaches the actor.
+- A practical guide to instrumenting existing code ([testing application code](07-testing-application-code.md)).
+
+These make the existing scheduler usable on ordinary application code. They do not extend what it controls: the items below are still unimplemented.
+
 ### Next: developer workflow
 
 - Trace format v2, recording choice points and run configuration so that replay can detect changed behavior more precisely.
@@ -77,7 +85,7 @@ These phases describe direction and order, not dates or commitments.
 - Determinism. Replay is only reliable when everything that affects scheduling is controlled. Timers, randomness and I/O have to be modeled, controlled, or at least detected.
 - Isolation. Each schedule must start from the same state. In-memory state is easy; processes, databases and networks are not.
 - Correctness of the scheduler. A bug in exploration would silently miss schedules, so the engine itself needs extensive tests.
-- Real-world adoption. Instrumenting existing code with checkpoints must stay simple enough that developers actually do it.
+- Real-world adoption. Instrumenting existing code with checkpoints must stay simple enough that developers actually do it. The approach so far is an optional callback threaded through the data-access layer; `examples/shop/` is the worked case.
 
 ## Users
 

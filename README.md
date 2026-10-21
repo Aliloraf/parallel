@@ -73,6 +73,18 @@ npx --no parallel-sim test scenarios/last-item.ts --trace-out traces/last-item.j
 npx --no parallel-sim replay traces/last-item.json scenarios/last-item.ts
 ```
 
+## Testing code you already have
+
+Scenarios are most useful when they run your real functions rather than a copy
+of them. Add an optional checkpoint callback to the places your code already
+awaits — a database call, a request — and pass `checkpoint` in from a scenario.
+The application code keeps no dependency on Parallel, and an uninstrumented
+call awaits nothing extra. [`examples/shop/`](examples/shop) is a worked
+example: a small order service with three concurrency bugs (overselling, a
+duplicate payment, a double reservation), their corrections, and tests that
+pin every result. [Testing application code](docs/07-testing-application-code.md)
+walks through the whole workflow.
+
 ## Installation
 
 Parallel requires Node.js 22.18 or later, which runs TypeScript scenarios directly through its built-in type stripping.
@@ -82,6 +94,11 @@ npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk
 ```
 
 Add `@aliloraf/parallel-engine` to run scenarios from your own code or test runner.
+
+The published packages are at 0.1.0. Features added since then — currently the
+SDK's `attempt()` helper for expected application errors — are only available
+from a [local build](#from-a-local-build) until the next release; the
+[changelog](CHANGELOG.md) lists what is unreleased.
 
 ### From a local build
 
@@ -170,20 +187,55 @@ So in CI, replaying a saved failure exits with 1 while the bug is still there an
 
 The examples use `npx --no`, which runs the CLI installed in the current project and fails instead of installing anything when it isn't there. Without `--no`, npx would offer to install a registry package named `parallel-sim`, which is not part of Parallel. With `--no`, options that come before a subcommand need a `--`: `npx --no parallel-sim -- --help`.
 
-TypeScript scenarios have to follow Node.js's type-stripping rules: no `enum`, `namespace` or constructor parameter properties, `import type` for type-only imports, and explicit `.ts` extensions in relative imports. [Writing scenarios](docs/06-writing-scenarios.md) covers this, how to choose checkpoints, and how to test existing code.
+TypeScript scenarios have to follow Node.js's type-stripping rules: no `enum`, `namespace` or constructor parameter properties, `import type` for type-only imports, and explicit `.ts` extensions in relative imports. [Writing scenarios](docs/06-writing-scenarios.md) covers this and how to choose checkpoints; [testing application code](docs/07-testing-application-code.md) covers instrumenting code you already have.
 
 ## Limitations
 
-- Only marked checkpoints are interleaved. Parallel does not control the event loop, timers, network or databases, and the results only cover the model you wrote.
-- The number of orderings grows quickly (three actors with three checkpoints each already have 1,680), and there is no schedule reduction yet. Exploration stops at configurable bounds and says so when it does.
-- An actor that doesn't reach its next checkpoint within a time limit (10 seconds by default) is reported as stalled. Parallel can ask actors to stop through an `AbortSignal`, but it cannot cancel arbitrary promises or synchronous code. See [execution lifecycle](docs/03-execution-lifecycle.md).
-- Exploration assumes the scenario behaves the same every time it runs. Parallel detects differences at checkpoints and stops, but it cannot prove a scenario deterministic. See [nondeterminism and replay](docs/04-nondeterminism-and-replay.md).
+Parallel explores a model you write, not your running system.
+
+- **Only instrumented checkpoints are scheduled.** Parallel does not control
+  the event loop, timers, network or databases, and sees nothing you have not
+  marked.
+- **Code between two checkpoints is one scheduled unit.** It runs to the next
+  checkpoint without interruption, however many uninstrumented `await`s it
+  contains. That is a modeling decision: a missing checkpoint hides a race.
+- **One actor cannot have concurrent branches.** Two checkpoints pending at
+  once in the same actor — an `await Promise.all([...])` whose branches both
+  pause — is reported as an actor error, not interleaved. An actor is the unit
+  of scheduling.
+- **Uncontrolled asynchronous behavior is not managed.** Real network, database
+  and timer behavior is neither scheduled nor made deterministic. Values that
+  differ between runs (random ids, timestamps) can make exploration report
+  nondeterminism, and stop a trace from replaying.
+- **Real external side effects are unsafe to repeat.** Exploration re-runs the
+  actors once per schedule from fresh state, so anything the code does outside
+  that state happens again each time. Use in-process fakes built inside
+  `createState()`.
+- **Deadlocks surface as stalls.** An actor waiting on something that never
+  resolves is reported as stalled after a time limit (10 seconds by default),
+  not diagnosed as a deadlock cycle. Parallel can ask actors to stop through an
+  `AbortSignal`, but it cannot cancel arbitrary promises or synchronous code.
+  See [execution lifecycle](docs/03-execution-lifecycle.md).
+- **Schedule counts grow combinatorially.** Three actors with three checkpoints
+  each already have 1,680 orderings, and there is no schedule reduction yet.
+  Exploration stops at configurable bounds and reports that it did.
+- **A pass is bounded by the model.** `complete: true` with no failures means no
+  invariant was violated in any ordering of *your* checkpoints, under *your*
+  state and *your* invariants. It is not a proof that the code is race-free.
+  See [nondeterminism and replay](docs/04-nondeterminism-and-replay.md) for the
+  exact definition.
+- Exploration assumes the scenario behaves the same every time it runs. Parallel
+  detects differences at checkpoints and stops, but cannot prove a scenario
+  deterministic.
 - Scenario files run as trusted code, without a sandbox.
-- The packages are ES modules (CommonJS code can still `require()` them) and need Node.js 22.18 or later.
+- The packages are ES modules (CommonJS code can still `require()` them) and
+  need Node.js 22.18 or later.
 
 ## Documentation
 
-- [Writing scenarios](docs/06-writing-scenarios.md): checkpoints, state, invariants, testing real code, common mistakes
+- [Writing scenarios](docs/06-writing-scenarios.md): checkpoints, state, invariants, common mistakes
+- [Testing application code](docs/07-testing-application-code.md): instrumenting existing functions, expected errors, the detect-replay-fix workflow, CI
+- [The shop example](examples/shop): a worked order service with three bugs and their corrections
 - [Execution lifecycle](docs/03-execution-lifecycle.md): actor states, stall detection, cancellation
 - [Nondeterminism and replay](docs/04-nondeterminism-and-replay.md): what "complete" means, replay divergence, trace compatibility
 - [Packaging](docs/05-packaging.md): package structure, external usage, publishing checklist
