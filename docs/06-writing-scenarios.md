@@ -78,16 +78,16 @@ Invariants are checked once per schedule, after all actors have finished. They a
 
 ## Testing existing code
 
-Scenarios are most useful when they run your real code rather than a copy of it. Add an optional pause function to the code you want to test, at the points where it awaits something in production (a database call, a request). It does nothing by default; a scenario passes `checkpoint` instead:
+Scenarios are most useful when they run your real code rather than a copy of it. Add an optional pause function to the code you want to test, at the points where it awaits something in production (a database call, a request). Guard it, so an uninstrumented call awaits nothing extra; a scenario passes `checkpoint` instead:
 
 ```ts
 // src/accounts.ts
 export type Accounts = Map<string, number>;
 export type Pause = (label: string) => Promise<void>;
 
-export async function withdraw(accounts: Accounts, id: string, amount: number, pause: Pause = async () => {}): Promise<boolean> {
+export async function withdraw(accounts: Accounts, id: string, amount: number, pause?: Pause): Promise<boolean> {
   const balance = accounts.get(id) ?? 0;
-  await pause('after-read');   // in production: the await of the database read
+  if (pause) await pause('after-read');   // in production: the await of the database read
   if (balance < amount) return false;
   accounts.set(id, balance - amount);
   return true;
@@ -125,6 +125,26 @@ export default defineScenario<State>({
 ```text
 VIOLATION balance-matches: 2 withdrawals approved, balance is 20
 ```
+
+Four rules make this work on real code:
+
+1. **Declare `Pause` in your own module.** It is structurally the SDK's `checkpoint`, so your application keeps no dependency on Parallel. The SDK deliberately exports no `Pause` type.
+2. **Instrument the boundary, not the business logic.** One call that leaves the process is one point where another request can interleave. Putting the callback in your data-access layer covers every call site at once.
+3. **Build every dependency inside `createState()`.** It is the only reset hook, and exploration re-runs the actors once per schedule. State reached through a module-level singleton is not reset and accumulates; real external side effects happen again on every schedule. Use in-process fakes, and keep them deterministic — a counter for ids, not `randomUUID()`.
+4. **Capture only the errors you expect.** A function that legitimately rejects would otherwise make the schedule an `actor_error`, and the engine skips the invariants for those.
+
+For the fourth rule, the SDK's `attempt()` records an expected rejection as scenario data instead:
+
+```ts
+import { attempt } from '@aliloraf/parallel-sdk';
+
+const result = await attempt(() => reserve(state.store, sku, checkpoint), (error) => error instanceof OutOfStockError);
+state.attempts.push(result);
+```
+
+It always re-throws `SimulationCancelledError`, and re-throws anything the predicate does not accept, so unexpected failures still surface as actor errors. (`attempt()` is not in the published 0.1.0 packages; see the [changelog](../CHANGELOG.md).)
+
+[Testing application code](07-testing-application-code.md) walks through the whole workflow — instrumenting a function, writing invariants, replaying a failure, validating a correction, wiring it into CI — against the worked example in [`examples/shop/`](../examples/shop).
 
 ## TypeScript
 

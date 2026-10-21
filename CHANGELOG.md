@@ -2,6 +2,23 @@
 
 Changes to the published packages (`@aliloraf/parallel-sdk`, `@aliloraf/parallel-engine` and `@aliloraf/parallel-cli`). The three packages share one version number and follow semantic versioning; while the version is 0.x, breaking changes increase the minor version.
 
+## Unreleased
+
+Application-level concurrency testing: using Parallel on business logic you already have, rather than on scenarios written from scratch.
+
+### Added
+
+- `@aliloraf/parallel-sdk`: `attempt(operation, isExpected)` and the `Attempt<T>` type. An expected application rejection becomes scenario data, so the schedule keeps a normal outcome and its invariants are still evaluated instead of being skipped as an `actor_error`. The predicate is required; `SimulationCancelledError`, non-`Error` thrown values and anything the predicate rejects are always re-thrown as the original value. This is the only change to any published package, and it is purely additive.
+- `examples/shop/`: a worked order service with three concurrency bugs — inventory overselling, duplicate payment processing, double reservation — each with a corrected implementation, and a deterministic in-memory store with an explicit atomicity contract. Its application layer imports no Parallel package; instrumentation is an optional, guarded checkpoint callback.
+- [Testing application code](docs/07-testing-application-code.md): the practical guide to instrumenting existing functions, capturing expected errors, and the detect, replay, fix and validate workflow.
+
+### Changed
+
+- [Writing scenarios](docs/06-writing-scenarios.md) recommends a guarded optional callback (`pause?: Pause`) over a no-op default, so an uninstrumented call awaits nothing extra.
+- The README's limitations are stated more precisely: concurrent branches within one actor are unsupported, real external side effects are repeated once per schedule, and deadlocks surface as stalls.
+
+No engine, CLI, trace-schema (version 1) or JSON report (`reportVersion` 1) change.
+
 ## 0.1.0
 
 The first release.

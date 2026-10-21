@@ -270,6 +270,87 @@ console.log(JSON.stringify({ timeout: DEFAULT_STEP_TIMEOUT_MS, outcome: bounded.
   assert.deepEqual(JSON.parse(result.stdout), { timeout: 10_000, outcome: 'incomplete', replay: 'replayed', cancellationSeenAsSdkError: true });
 });
 
+test('the installed SDK exports attempt with its cancellation rule intact', () => {
+  write('attempt.mjs', `import { attempt, defineScenario, SimulationCancelledError } from '@aliloraf/parallel-sdk';
+import { explore } from '@aliloraf/parallel-engine';
+
+class Declined extends Error {}
+const isDeclined = (error) => error instanceof Declined;
+const thrownBy = async (operation) => { try { await operation(); } catch (cause) { return cause; } return 'did not throw'; };
+
+const resolved = await attempt(async () => 'value', isDeclined);
+const undefinedValue = await attempt(async () => undefined, isDeclined);
+const declined = new Declined('declined');
+const captured = await attempt(async () => { throw declined; }, isDeclined);
+const unexpected = new RangeError('boom');
+const rethrown = await thrownBy(() => attempt(async () => { throw unexpected; }, isDeclined));
+const raw = { code: 'ENOENT' };
+const nonError = await thrownBy(() => attempt(async () => { throw raw; }, () => true));
+const cancellation = new SimulationCancelledError('Run closed: consumer');
+let consulted = false;
+const cancelled = await thrownBy(() => attempt(async () => { throw cancellation; }, () => { consulted = true; return true; }));
+const predicateFailure = new TypeError('predicate');
+const fromPredicate = await thrownBy(() => attempt(async () => { throw declined; }, () => { throw predicateFailure; }));
+
+// Expected errors keep the schedule's outcome, so invariants are still checked.
+const scenario = defineScenario({
+  name: 'consumer-attempt',
+  createState: () => ({ declined: 0 }),
+  actors: ['a', 'b'].map((id) => ({ id, async run({ state, checkpoint }) {
+    const result = await attempt(async () => { await checkpoint('charge'); throw new Declined('declined'); }, isDeclined);
+    if (!result.ok) state.declined++;
+  } })),
+  invariants: [{ name: 'nothing-declined', check: ({ declined }) => declined === 0 }],
+});
+const summary = await explore(scenario);
+
+console.log(JSON.stringify({
+  resolved,
+  undefinedHasValueKey: 'value' in undefinedValue,
+  capturedIsOriginal: captured.ok === false && captured.error === declined,
+  unexpectedIsOriginal: rethrown === unexpected,
+  nonErrorIsOriginal: nonError === raw,
+  cancellationIsOriginal: cancelled === cancellation,
+  predicateConsultedForCancellation: consulted,
+  predicateFailurePropagated: fromPredicate === predicateFailure,
+  outcomes: [...new Set(summary.outcomes.map((trace) => trace.outcome))],
+  actorErrors: summary.outcomes.flatMap((trace) => trace.errors).length,
+  abandonedWork: summary.abandonedWork,
+}));
+`);
+  const result = node(['attempt.mjs']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    resolved: { ok: true, value: 'value' },
+    undefinedHasValueKey: true,
+    capturedIsOriginal: true,
+    unexpectedIsOriginal: true,
+    nonErrorIsOriginal: true,
+    cancellationIsOriginal: true,
+    predicateConsultedForCancellation: false,
+    predicateFailurePropagated: true,
+    outcomes: ['invariant_failed'],
+    actorErrors: 0,
+    abandonedWork: false,
+  });
+});
+
+test('attempt can be required from CommonJS', () => {
+  write('attempt.cjs', `const { attempt, SimulationCancelledError } = require('@aliloraf/parallel-sdk');
+class Declined extends Error {}
+const cancellation = new SimulationCancelledError('Run closed: consumer');
+(async () => {
+  const captured = await attempt(async () => { throw new Declined('declined'); }, (error) => error instanceof Declined);
+  let rethrown = false;
+  try { await attempt(async () => { throw cancellation; }, () => true); } catch (error) { rethrown = error === cancellation; }
+  console.log(JSON.stringify({ captured: captured.ok === false && captured.error instanceof Declined, cancellationRethrown: rethrown }));
+})();
+`);
+  const result = node(['attempt.cjs']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { captured: true, cancellationRethrown: true });
+});
+
 test('the packages can be required from CommonJS', () => {
   write('program.cjs', `const { explore } = require('@aliloraf/parallel-engine');
 const { defineScenario } = require('@aliloraf/parallel-sdk');
@@ -314,25 +395,32 @@ test('the shipped type declarations type-check a strict consumer project, and ca
   }));
   write('typed-program.ts', `import { explore, replay, validateTrace } from '@aliloraf/parallel-engine';
 import type { ExploreResult, ReplayResult, Trace } from '@aliloraf/parallel-engine';
+import { attempt } from '@aliloraf/parallel-sdk';
+import type { Attempt } from '@aliloraf/parallel-sdk';
 import scenario from './typed/lost-update.ts';
 const summary: ExploreResult = await explore(scenario, { maxSchedules: 10, stepTimeoutMs: 1_000 });
 const trace: Trace = validateTrace(JSON.parse(JSON.stringify(summary.failures[0])));
 const result: ReplayResult = await replay(scenario, trace);
 if (result.status === 'replay_diverged') console.log(result.divergence.kind);
+const attempted: Attempt<number> = await attempt(async () => 1, (error: Error) => error instanceof RangeError);
+if (!attempted.ok) console.log(attempted.error.message);
 `);
   const clean = node([tsc, '-p', 'tsconfig.json']);
   assert.equal(clean.status, 0, clean.stdout + clean.stderr);
 
   write('misuse.ts', `import { explore } from '@aliloraf/parallel-engine';
-import { defineScenario } from '@aliloraf/parallel-sdk';
+import { attempt, defineScenario } from '@aliloraf/parallel-sdk';
 const scenario = defineScenario<{ n: number }>({ name: 'x', createState: () => ({ n: 0 }), actors: [], invariants: [] });
 await explore(scenario, { maxSchedules: 'many' });
+await attempt(async () => 1);
 `);
   writeFileSync(join(consumer, 'tsconfig.misuse.json'), JSON.stringify({ extends: './tsconfig.json', files: ['misuse.ts'] }));
   const misuse = node([tsc, '-p', 'tsconfig.misuse.json']);
   assert.notEqual(misuse.status, 0);
   // `maxSchedules: 'many'` (line 4) must be rejected by the shipped ExploreOptions type.
   assert.match(misuse.stdout, /misuse\.ts\(4,\d+\): error TS2322: Type 'string' is not assignable to type 'number'/);
+  // `attempt` (line 5) must require its predicate; there is no catch-all mode.
+  assert.match(misuse.stdout, /misuse\.ts\(5,\d+\): error TS2554: Expected 2 arguments, but got 1/);
 });
 
 test('the code examples in the published READMEs work as documented', () => {
@@ -390,6 +478,84 @@ test('the example in the scenario-writing guide behaves as documented', () => {
   assert.match(result.stdout, /VIOLATION balance-matches: 2 withdrawals approved, balance is 20/);
 });
 
+test('the SDK README example for expected errors runs as documented', () => {
+  const block = [...readFileSync(join(consumer, 'node_modules', '@aliloraf', 'parallel-sdk', 'README.md'), 'utf8')
+    .matchAll(/```ts\r?\n([\s\S]*?)```/g)].map((match) => match[1]!).find((code) => code.includes('attempt('));
+  assert.ok(block, 'the attempt example was not found in the SDK README');
+  // It must be self-contained: no import of a module the README does not show.
+  for (const specifier of [...block.matchAll(/from '([^']+)'/g)].map((match) => match[1]!)) {
+    assert.match(specifier, /^(@aliloraf\/parallel-sdk|node:)/, `the example must not import ${specifier}`);
+  }
+  const file = write('sdk-readme/tickets.ts', block);
+  const result = cli(['test', file]);
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stdout, /Scenario: ticket-sales/);
+  assert.match(result.stdout, /Schedules explored: 6/);
+  assert.match(result.stdout, /VIOLATION no-more-tickets-than-seats: sold 2 tickets for 1 seat/);
+  // The two sequential orderings capture the expected SoldOutError instead of
+  // failing as actor errors, so only 4 of the 6 schedules fail.
+  assert.match(result.stdout, /Failures: 4 \(invariant_failed: 4\)/);
+  assert.doesNotMatch(result.stdout, /ERROR /);
+});
+
+test('the workflow in the application-testing guide runs as documented', () => {
+  const guide = readFileSync(join(root, 'docs', '07-testing-application-code.md'), 'utf8');
+  const blocks = [...guide.matchAll(/```(\w*)\r?\n([\s\S]*?)```/g)].map((match) => ({ lang: match[1]!, code: match[2]! }));
+
+  // The example is copied into the consumer project, so it runs against the
+  // installed packages rather than the workspace.
+  const shop = join(consumer, 'guide-shop');
+  cpSync(join(root, 'examples', 'shop'), shop, { recursive: true });
+
+  // 1. The commands the guide gives are the ones exercised here.
+  for (const command of [
+    'parallel-sim test scenarios/oversell.ts',
+    'parallel-sim test scenarios/oversell.ts --trace-out traces/oversell.json',
+    'parallel-sim replay traces/oversell.json scenarios/oversell.ts',
+    'parallel-sim test scenarios/oversell-fixed.ts',
+  ]) {
+    assert.ok(guide.includes(command), `the guide no longer documents: ${command}`);
+  }
+
+  // 2. Exploring the buggy scenario prints exactly what the guide shows.
+  const documented = blocks.find(({ lang, code }) => lang === 'text' && code.startsWith('Scenario: shop-oversell'));
+  assert.ok(documented, 'the documented exploration output was not found');
+  const tested = cli(['test', join(shop, 'scenarios', 'oversell.ts')]);
+  assert.equal(tested.status, 1, tested.stderr);
+  assert.equal(tested.stdout.replace(/\r\n/g, '\n'), documented.code.replace(/\r\n/g, '\n'));
+
+  // 3. --trace-out writes into a directory that does not exist yet, as the
+  //    guide's `traces/` path assumes, and the saved trace still reproduces.
+  const tracePath = join(shop, 'traces', 'oversell.json');
+  assert.equal(existsSync(join(shop, 'traces')), false);
+  const saved = cli(['test', join(shop, 'scenarios', 'oversell.ts'), '--trace-out', tracePath]);
+  assert.equal(saved.status, 1, saved.stderr);
+  assert.ok(existsSync(tracePath), 'the CLI must create the trace directory');
+  assert.equal(JSON.parse(readFileSync(tracePath, 'utf8')).scenario, 'shop-oversell');
+  const replayed = cli(['replay', tracePath, join(shop, 'scenarios', 'oversell.ts')]);
+  assert.equal(replayed.status, 1, replayed.stderr); // The bug is still there.
+  assert.match(replayed.stdout, /Replay reproduced the trace \(invariant_failed\)/);
+
+  // 4. The corrected scenario passes, which is the evidence the guide relies on.
+  const fixed = cli(['test', join(shop, 'scenarios', 'oversell-fixed.ts')]);
+  assert.equal(fixed.status, 0, fixed.stderr);
+  assert.match(fixed.stdout, /Exploration complete: true/);
+
+  // 5. Replaying the old trace against the corrected code diverges, which the
+  //    guide is explicit is not by itself evidence that the bug is fixed.
+  const diverged = cli(['replay', tracePath, join(shop, 'scenarios', 'oversell-fixed.ts'), '--json']);
+  assert.equal(diverged.status, 4, diverged.stderr);
+  assert.equal(JSON.parse(diverged.stdout).status, 'replay_diverged');
+
+  // 6. The guide's CI example runs verbatim from the example's root, where its
+  //    './scenarios/oversell-fixed.ts' import resolves.
+  const ciExample = blocks.find(({ lang, code }) => lang === 'ts' && code.includes("from 'node:test'"));
+  assert.ok(ciExample, 'the CI example was not found');
+  writeFileSync(join(shop, 'guide-ci.test.ts'), ciExample.code);
+  const viaEngine = spawnSync(process.execPath, ['--test', 'guide-ci.test.ts'], { cwd: shop, encoding: 'utf8', timeout: 60_000 });
+  assert.equal(viaEngine.status, 0, viaEngine.stdout + viaEngine.stderr);
+});
+
 test('the installed parallel-sim follows the exit-code and JSON contract', () => {
   const dir = join(consumer, 'contract');
   mkdirSync(dir, { recursive: true });
@@ -432,8 +598,8 @@ test('the shipped types resolve under node, nodenext and bundler module resoluti
   const tsc = join(root, 'node_modules', 'typescript', 'bin', 'tsc');
   write('resolution/use.ts', `import { explore, replay } from '@aliloraf/parallel-engine';
 import type { ExploreResult } from '@aliloraf/parallel-engine';
-import { defineScenario, SimulationCancelledError } from '@aliloraf/parallel-sdk';
-import type { StepContext } from '@aliloraf/parallel-sdk';
+import { attempt, defineScenario, SimulationCancelledError } from '@aliloraf/parallel-sdk';
+import type { Attempt, StepContext } from '@aliloraf/parallel-sdk';
 
 const scenario = defineScenario<{ n: number }>({
   name: 'resolution',
@@ -443,6 +609,7 @@ const scenario = defineScenario<{ n: number }>({
 });
 export const check = async (): Promise<ExploreResult> => explore(scenario);
 export const cancelled = (error: unknown): boolean => error instanceof SimulationCancelledError;
+export const tried = async (): Promise<Attempt<number>> => attempt(async () => 1, (error) => error instanceof RangeError);
 export { replay };
 `);
   // `moduleResolution: node` ignores package exports and needs the top-level `types` field.
