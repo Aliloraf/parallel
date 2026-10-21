@@ -95,10 +95,10 @@ npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk
 
 Add `@aliloraf/parallel-engine` to run scenarios from your own code or test runner.
 
-0.1.0 is the latest release on npm. 0.2.0, which adds the SDK's `attempt()`
-helper for expected application errors, is prepared but not yet published; it
-is available from a [local build](#from-a-local-build) until then. The
-[changelog](CHANGELOG.md) records what each version contains.
+0.2.0 is the latest release on npm. It adds the SDK's `attempt()` helper for
+expected application errors, which earlier versions do not have, so pin or
+upgrade to `^0.2.0` if you use it. The [changelog](CHANGELOG.md) records what
+each version contains.
 
 ### From a local build
 

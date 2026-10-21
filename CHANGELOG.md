@@ -2,11 +2,9 @@
 
 Changes to the published packages (`@aliloraf/parallel-sdk`, `@aliloraf/parallel-engine` and `@aliloraf/parallel-cli`). The three packages share one version number and follow semantic versioning; while the version is 0.x, breaking changes increase the minor version.
 
-## 0.2.0 (unreleased)
+## 0.2.0
 
 Application-level concurrency testing: using Parallel on business logic you already have, rather than on scenarios written from scratch.
-
-Prepared but not yet published: 0.1.0 is still the latest release on npm. Until 0.2.0 is published, these packages are available only from a [local build](README.md#from-a-local-build).
 
 ### Added
 
