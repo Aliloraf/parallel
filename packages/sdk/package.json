@@ -1,6 +1,6 @@
 {
   "name": "@aliloraf/parallel-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Scenario API for Parallel: define actors, checkpoints and invariants for deterministic concurrency testing",
   "license": "Apache-2.0",
   "author": "Alae Raftani",

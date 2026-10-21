@@ -2,9 +2,11 @@
 
 Changes to the published packages (`@aliloraf/parallel-sdk`, `@aliloraf/parallel-engine` and `@aliloraf/parallel-cli`). The three packages share one version number and follow semantic versioning; while the version is 0.x, breaking changes increase the minor version.
 
-## Unreleased
+## 0.2.0 (unreleased)
 
 Application-level concurrency testing: using Parallel on business logic you already have, rather than on scenarios written from scratch.
+
+Prepared but not yet published: 0.1.0 is still the latest release on npm. Until 0.2.0 is published, these packages are available only from a [local build](README.md#from-a-local-build).
 
 ### Added
 
@@ -16,6 +18,15 @@ Application-level concurrency testing: using Parallel on business logic you alre
 
 - [Writing scenarios](docs/06-writing-scenarios.md) recommends a guarded optional callback (`pause?: Pause`) over a no-op default, so an uninstrumented call awaits nothing extra.
 - The README's limitations are stated more precisely: concurrent branches within one actor are unsupported, real external side effects are repeated once per schedule, and deadlocks surface as stalls.
+
+### Upgrading from 0.1.0
+
+0.1.0 keeps working and is not withdrawn; upgrade when you want `attempt()`.
+
+- **No application code changes are required.** The update is additive: two new SDK exports, with nothing removed and no signature changed. Existing scenarios, traces and CLI invocations behave exactly as before.
+- **Update the versions you declare.** Raise the Parallel entries in your `package.json` (or your dependency ranges, for example from `^0.1.0` to `^0.2.0`) and reinstall; an unchanged `^0.1.0` range resolves to 0.1.x, which does not contain `attempt()`.
+- **Keep the three packages on compatible 0.2.x versions.** They share one version number, and the engine and CLI both declare the SDK as a peer at `^0.2.0`, so a mixed 0.1.x/0.2.x installation is not supported. The CLI depends on engine `0.2.0` exactly.
+- `attempt` and `Attempt` are new names in `@aliloraf/parallel-sdk`. Nothing is imported automatically, so existing code is unaffected, but a module that already defines its own `attempt` or `Attempt` and wants the SDK's as well needs to alias one of them, as in `import { attempt as attemptStep } from '@aliloraf/parallel-sdk'`.
 
 No engine, CLI, trace-schema (version 1) or JSON report (`reportVersion` 1) change.
 

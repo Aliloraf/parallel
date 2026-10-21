@@ -6,11 +6,11 @@ This document explains how the three packages are put together, how that is veri
 
 | Package | Depends on | Exports |
 |---|---|---|
-| `@aliloraf/parallel-sdk` | nothing | `defineScenario`, `SimulationCancelledError`, and the types `Scenario`, `Actor`, `Invariant`, `StepContext` |
-| `@aliloraf/parallel-engine` | peer: sdk `^0.1.0` | `explore`, `replay`, `validateTrace`, `leavesAbandonedWork`, `InvalidTraceError`, `ExecutionError`, `DEFAULT_STEP_TIMEOUT_MS`, and the trace and result types |
-| `@aliloraf/parallel-cli` | engine `0.1.0`; peer: sdk `^0.1.0` | the `parallel-sim` command; nothing importable |
+| `@aliloraf/parallel-sdk` | nothing | `defineScenario`, `SimulationCancelledError`, `attempt`, and the types `Scenario`, `Actor`, `Invariant`, `StepContext`, `Attempt` |
+| `@aliloraf/parallel-engine` | peer: sdk `^0.2.0` | `explore`, `replay`, `validateTrace`, `leavesAbandonedWork`, `InvalidTraceError`, `ExecutionError`, `DEFAULT_STEP_TIMEOUT_MS`, and the trace and result types |
+| `@aliloraf/parallel-cli` | engine `0.2.0`; peer: sdk `^0.2.0` | the `parallel-sim` command; nothing importable |
 
-The engine and the CLI take the SDK as a peer dependency so that scenarios, engine and CLI share a single copy of it; with regular dependencies, a version mismatch could install two copies, and `instanceof SimulationCancelledError` would then fail in user code. npm installs missing peers automatically. All three packages share one version, and the CLI pins the engine exactly.
+The engine and the CLI take the SDK as a peer dependency so that scenarios, engine and CLI share a single copy of it; with regular dependencies, a version mismatch could install two copies, and `instanceof SimulationCancelledError` would then fail in user code. npm installs missing peers automatically. All three packages share one version, and the CLI pins the engine exactly. Because a caret range on a `0.x` version accepts patch releases only (`^0.1.0` does not admit `0.2.0`), both peer ranges and the CLI's engine pin have to be raised with every minor bump; `npm run test:integration` asserts that they match the packed version.
 
 Each package's `exports` map contains only its entry point (`.`, for the two libraries) and `./package.json`. Everything else, including the engine's `history.js` and all `dist/` paths, fails to import with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
@@ -57,6 +57,7 @@ When loading fails, the CLI replaces Node.js's error with an explanation for thr
 4. Run `npm ci`, `npm test` and `npm run test:integration`, then `npm publish --workspaces --dry-run`, and review the file lists. The dry run must not report corrections to any `package.json`.
 5. Publish in dependency order, sdk, engine, cli, with `npm publish --workspace <name>`. The CLI pins the exact engine version, so it can't be installed until that engine version is on npm. Publishing from CI with `--provenance` (GitHub Actions OIDC) is preferable to publishing from a laptop.
 6. In a new project, install the published packages and run the README example.
-7. Tag the release (for example `v0.1.0`) and add the release date to its changelog entry.
+7. Tag the release (for example `v0.2.0`).
+8. **After publishing**, remove the `(unreleased)` marker and the "not yet published" note from that version's changelog entry, and update the release-status paragraph under [Installation](../README.md#installation) and the availability notes in the [SDK README](../packages/sdk/README.md) and [testing application code](07-testing-application-code.md). Until this step is done, the documentation states that the version is prepared rather than released, which is deliberate.
 
 Versions follow semantic versioning; while the version is 0.x, breaking changes increase the minor version.
