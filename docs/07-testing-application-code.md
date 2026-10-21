@@ -14,11 +14,12 @@ The TypeScript blocks below marked *excerpt* are quoted from
 shell commands and the [CI example](#in-a-development-or-ci-workflow) are
 complete and are executed by the test suite.
 
-> **Availability.** `attempt()` and `Attempt<T>` are not in the published
-> 0.1.0 packages. Everything else here works with 0.1.0; until the next release
-> you need a [local build](../README.md#from-a-local-build) for `attempt()`.
-> Without it, write the same try/catch by hand, and make sure it re-throws
-> `SimulationCancelledError` — see [expected errors](#6-capture-expected-errors).
+> **Availability.** `attempt()` and `Attempt<T>` were added in 0.2.0, which is
+> prepared but not yet published; until it is, they need a
+> [local build](../README.md#from-a-local-build). Everything else here works
+> with 0.1.0. Without `attempt()`, write the same try/catch by hand, and make
+> sure it re-throws `SimulationCancelledError` — see
+> [expected errors](#6-capture-expected-errors).
 
 ## The shape of the integration
 

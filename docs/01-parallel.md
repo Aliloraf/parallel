@@ -53,7 +53,7 @@ These phases describe direction and order, not dates or commitments.
 - The `parallel-sim` CLI: strict argument parsing, exit codes that separate failures, incomplete exploration, nondeterminism and runtime errors, and versioned JSON reports.
 - npm packages, tested on Linux and Windows.
 
-### Unreleased
+### 0.2.0
 
 - A worked application example ([`examples/shop/`](../examples/shop)): an order service with inventory overselling, duplicate payment processing and double reservation, each with a corrected implementation, tested through its own business functions rather than rewritten as scenarios.
 - `attempt()` and `Attempt<T>` in the SDK, so an expected application rejection becomes scenario data instead of an `actor_error` that suppresses the invariants, while cancellation still reaches the actor.

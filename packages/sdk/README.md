@@ -45,7 +45,7 @@ Code between two checkpoints runs as one step; Parallel only interleaves the che
 
 ## Expected application errors
 
-> `attempt` and `Attempt<T>` are not in the published 0.1.0 package. Until the next release they need a [local build](https://github.com/Aliloraf/parallel#from-a-local-build).
+> `attempt` and `Attempt<T>` were added in 0.2.0. On 0.1.0 they are not available; while 0.2.0 is unpublished, use a [local build](https://github.com/Aliloraf/parallel#from-a-local-build).
 
 Real code rejects requests for correct reasons: sold out, already taken, lost an optimistic-concurrency race. An error that escapes an actor makes the whole schedule an `actor_error`, and the engine then **evaluates no invariants for it** — so the race the scenario exists to find goes unreported.
 

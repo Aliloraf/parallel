@@ -1,6 +1,6 @@
 {
   "name": "@aliloraf/parallel-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "parallel-sim: command-line runner for Parallel concurrency scenarios",
   "license": "Apache-2.0",
   "author": "Alae Raftani",
@@ -39,9 +39,9 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "@aliloraf/parallel-engine": "0.1.0"
+    "@aliloraf/parallel-engine": "0.2.0"
   },
   "peerDependencies": {
-    "@aliloraf/parallel-sdk": "^0.1.0"
+    "@aliloraf/parallel-sdk": "^0.2.0"
   }
 }

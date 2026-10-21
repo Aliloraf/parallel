@@ -95,10 +95,10 @@ npm install --save-dev @aliloraf/parallel-cli @aliloraf/parallel-sdk
 
 Add `@aliloraf/parallel-engine` to run scenarios from your own code or test runner.
 
-The published packages are at 0.1.0. Features added since then — currently the
-SDK's `attempt()` helper for expected application errors — are only available
-from a [local build](#from-a-local-build) until the next release; the
-[changelog](CHANGELOG.md) lists what is unreleased.
+0.1.0 is the latest release on npm. 0.2.0, which adds the SDK's `attempt()`
+helper for expected application errors, is prepared but not yet published; it
+is available from a [local build](#from-a-local-build) until then. The
+[changelog](CHANGELOG.md) records what each version contains.
 
 ### From a local build
 
@@ -116,9 +116,9 @@ npm pack --workspaces --pack-destination "$HOME/parallel-packages"
 
 cd /path/to/your-project
 npm install --save-dev \
-  "$HOME/parallel-packages/aliloraf-parallel-sdk-0.1.0.tgz" \
-  "$HOME/parallel-packages/aliloraf-parallel-engine-0.1.0.tgz" \
-  "$HOME/parallel-packages/aliloraf-parallel-cli-0.1.0.tgz"
+  "$HOME/parallel-packages/aliloraf-parallel-sdk-0.2.0.tgz" \
+  "$HOME/parallel-packages/aliloraf-parallel-engine-0.2.0.tgz" \
+  "$HOME/parallel-packages/aliloraf-parallel-cli-0.2.0.tgz"
 ```
 
 On Windows, in PowerShell:
@@ -133,9 +133,9 @@ npm pack --workspaces --pack-destination "$HOME\parallel-packages"
 
 cd C:\path\to\your-project
 npm install --save-dev `
-  "$HOME\parallel-packages\aliloraf-parallel-sdk-0.1.0.tgz" `
-  "$HOME\parallel-packages\aliloraf-parallel-engine-0.1.0.tgz" `
-  "$HOME\parallel-packages\aliloraf-parallel-cli-0.1.0.tgz"
+  "$HOME\parallel-packages\aliloraf-parallel-sdk-0.2.0.tgz" `
+  "$HOME\parallel-packages\aliloraf-parallel-engine-0.2.0.tgz" `
+  "$HOME\parallel-packages\aliloraf-parallel-cli-0.2.0.tgz"
 ```
 
 npm records the tarballs as `file:` dependencies; run `npm install` again after rebuilding.

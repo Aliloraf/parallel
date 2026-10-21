@@ -142,7 +142,7 @@ const result = await attempt(() => reserve(state.store, sku, checkpoint), (error
 state.attempts.push(result);
 ```
 
-It always re-throws `SimulationCancelledError`, and re-throws anything the predicate does not accept, so unexpected failures still surface as actor errors. (`attempt()` is not in the published 0.1.0 packages; see the [changelog](../CHANGELOG.md).)
+It always re-throws `SimulationCancelledError`, and re-throws anything the predicate does not accept, so unexpected failures still surface as actor errors. (`attempt()` was added in 0.2.0; see the [changelog](../CHANGELOG.md).)
 
 [Testing application code](07-testing-application-code.md) walks through the whole workflow — instrumenting a function, writing invariants, replaying a failure, validating a correction, wiring it into CI — against the worked example in [`examples/shop/`](../examples/shop).
 
